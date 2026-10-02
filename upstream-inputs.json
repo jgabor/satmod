@@ -1,0 +1,54 @@
+{
+  "checked_on": "2026-10-02",
+  "guide": "https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html",
+  "engine": {
+    "repository": "satisfactorymodding/UnrealEngine",
+    "tag": "5.6.1-css-83",
+    "source_commit": "5271227f38511532213b10dd10d6ed4f0b04fef5",
+    "license_notice": {
+      "path": "LICENSE.md",
+      "blob": "bf0fa8f959462ec6cd92c568771bcceb9370599f",
+      "bytes": 195,
+      "sha256": "73f98e42dbdb609f741e58725a0627dd8a0ce1122dc8aa784cc474cb41d4ddea"
+    },
+    "release_id": 333278447,
+    "published_at": "2026-06-02T17:57:23Z",
+    "target_commitish": "5.6.1-CSS",
+    "assets": [
+      {
+        "id": 436454982,
+        "name": "UnrealEngine-CSS-Editor-Linux.tar.zst.00",
+        "bytes": 2147483647,
+        "sha256": "5847a80489d04e7ec231de01c154e1046174aa69f5d2c00023a62a67626001e7"
+      },
+      {
+        "id": 436454971,
+        "name": "UnrealEngine-CSS-Editor-Linux.tar.zst.01",
+        "bytes": 2147483647,
+        "sha256": "06e8177c34ac2cae5568a71dc92b735162ee29987e964ecf312620f0b11a8d9f"
+      },
+      {
+        "id": 436454983,
+        "name": "UnrealEngine-CSS-Editor-Linux.tar.zst.02",
+        "bytes": 2147483647,
+        "sha256": "b624c15b9becf336b6ed4e71b73498f208d3f6edaf857e0bcdcebce7540a9362"
+      },
+      {
+        "id": 436454984,
+        "name": "UnrealEngine-CSS-Editor-Linux.tar.zst.03",
+        "bytes": 1821888999,
+        "sha256": "565829545aff54f3771ac80d00e6edea38fd0a235c723c55be063f563aadb049"
+      }
+    ]
+  },
+  "msvc_wine": {
+    "repository": "mircearoata/msvc-wine",
+    "branch": "ue-patches",
+    "commit": "61b7cbc8cb9413fec8f0016ef433a90e06c37f54",
+    "vsdownload_args": [
+      "--msvc-version", "17.8",
+      "--sdk-version", "10.0.22621",
+      "--channel", "release.ltsc.17.8"
+    ]
+  }
+}

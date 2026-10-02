@@ -1,0 +1,33 @@
+# shellcheck shell=bash
+
+_engine_css_registered() {
+  local line section=''
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line =~ ^[[:space:]]*\[([^]]+)\][[:space:]]*$ ]]; then
+      section=${BASH_REMATCH[1]}
+    elif [[ $section == Installations && $line =~ ^[[:space:]]*[^=[:space:]\;#][^=]*=[[:space:]]*/opt/unreal-engine-css/?[[:space:]]*$ ]]; then
+      return 0
+    fi
+  done < "$1"
+  return 1
+}
+
+post_install() {
+  local account name uid home _
+  # Pacman may not receive SUDO_USER. Never infer an account from root's HOME.
+  if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] &&
+     account=$(getent passwd "$SUDO_USER" 2>/dev/null) &&
+     IFS=: read -r name _ uid _ _ home _ <<< "$account" &&
+     [[ $name == "$SUDO_USER" && $uid =~ ^[0-9]+$ && ! $uid =~ ^0+$ && $home == /* ]]; then
+    if _engine_css_registered "$home/.config/Epic/UnrealEngine/Install.ini" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  printf '%s\n' \
+    'If not already registered for your account, run as your ordinary user, without sudo:' \
+    '  /opt/unreal-engine-css/Engine/Binaries/Linux/UnrealVersionSelector -register -unattended' || :
+}
+
+post_upgrade() {
+  post_install
+}

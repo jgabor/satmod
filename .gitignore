@@ -1,0 +1,23 @@
+# Local downloads, extraction, and source caches.
+/.cache/
+/source-cache/
+UnrealEngine-CSS-Editor-Linux.tar.zst*
+UnrealEngine-CSS-*-Editor-Linux.tar.zst.*
+
+# Generated Python and Ruff caches.
+__pycache__/
+.ruff_cache/
+
+# makepkg working directories and generated archives.
+/packages/*/src/
+/packages/*/pkg/
+*.pkg.tar.*
+*.src.tar.*
+
+# Local credential files. These rules are not a security boundary.
+/.env
+/.env.local
+/.credentials/
+/credentials.json
+/.netrc
+/.config/gh/hosts.yml
