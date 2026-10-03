@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# ISC license, see /usr/share/licenses/satisfactory-modding-setup/LICENSE.
+set -e
+if [[ ${1:-} == --help ]]; then
+    printf 'Usage: satisfactory-modding-run COMMAND [ARGUMENT ...]\nSources the managed MSVC/Wine environment, then execs COMMAND. Never prompts.\n'
+    exit 0
+fi
+if (( $# == 0 )); then
+    printf 'satisfactory-modding-run: supply a command (see --help)\n' >&2
+    exit 2
+fi
+environment=${XDG_CONFIG_HOME:-$HOME/.config}/satisfactory-modding/environment.sh
+if [[ ! -f $environment ]]; then
+    printf 'satisfactory-modding-run: run satisfactory-modding-setup first; missing %s\n' "$environment" >&2
+    exit 1
+fi
+# Generated per-user file, not available to static analysis.
+# shellcheck disable=SC1090
+source "$environment"
+exec "$@"

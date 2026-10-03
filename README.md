@@ -12,19 +12,25 @@ remains unverified. An earlier isolated Xvfb/NullRHI startup failed with no
 usable default DDC cache nodes and failed Zen startup. Its cause is unknown in
 that limited environment; it does not establish normal GUI behavior.
 
-The planned Arch Linux packages automate the
+The Arch Linux packages target the
 [Linux setup guide](https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html)
 up to, but not including, **Project Setup**:
 
 - [unreal-engine-css-bin](packages/unreal-engine-css-bin/): the prebuilt CSS
   Unreal Engine under `/opt/unreal-engine-css`, installed according to the user.
-- [satisfactory-modding-setup](packages/satisfactory-modding-setup/): the next
-  implementation task, a user-run command for MSVC and engine registration.
-  Its complete source-tested MSVC snapshot is pinned, but setup is not implemented.
+- [satisfactory-modding-setup](packages/satisfactory-modding-setup/): a built Arch
+  recipe, user-run MSVC/SDK setup command, and minimal environment launcher.
+  Follow its guide for build/install steps, applicable Microsoft terms, defaults,
+  repeat runs, and retained user data. After the pkgrel 2 Wine server wait fix,
+  the user reports successful helper compilation, compile/link/header/dependency/
+  resource tests, and repeat setup without downloads. These runtime results were
+  not independently rerun here. Pkgrel 3 uses `satisfactory-modding-setup --json`
+  for first and repeat setup; the compatibility flag is optional and has no effect.
 
 Account creation, account linking, repository access, GitHub authentication, and
-applicable license decisions remain user responsibilities. A future unattended
-setup may accept Microsoft's terms only with explicit user authorization.
+applicable license decisions remain user responsibilities. The user-run setup
+invocation deliberately requests MSVC/SDK installation under applicable Microsoft
+terms, as linked in the setup guide; this notice is not legal certification.
 User setup must run without root privileges. Pacman install scripts must not
 download toolchains, initialize Wine, or configure user accounts.
 
@@ -35,4 +41,7 @@ maintainer/bootstrap tools. Large local inputs and outputs stay in ignored
 
 AUR publication and Project Setup are deferred. See [TODO.md](TODO.md) and
 [pinned source inputs](upstream-inputs.json). The engine package is ready;
-the complete two-package setup path and MSVC runtime verification remain future work.
+the setup recipe is built and fixture-tested, with successful runtime setup and
+repeat runs reported by the user. Normal GUI startup, clean-chroot builds, and full
+package lifecycle checks remain unverified;
+no agent-run Microsoft download, license acceptance, or account setup was performed.

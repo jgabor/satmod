@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""User-run MSVC setup. ISC license, see LICENSE."""
+
+import argparse
+import configparser
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+
+PIN = "61b7cbc8cb9413fec8f0016ef433a90e06c37f54"
+SOURCE = Path(__file__).resolve().parent / "msvc-wine"
+ENGINE = Path("/opt/unreal-engine-css")
+TOOLS = ("python3", "bash", "wine", "wineserver", "msiextract", "git", "perl", "tar", "zstd",
+         "dos2unix", "find", "sed", "awk", "xargs", "sha256sum", "patch")
+SELECTION = {"msvc-version": "17.8", "sdk-version": "10.0.22621",
+             "channel": "release.ltsc.17.8"}
+MARKER = ".satisfactory-modding.json"
+
+
+class SetupError(Exception):
+    pass
+
+
+def require(condition, message):
+    if not condition:
+        raise SetupError(message)
+
+
+def user_location(path):
+    """Check before mkdir. This prevents mistakes, not hostile same-user races."""
+    ancestor = path
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    require(ancestor.stat().st_uid == os.getuid() and os.access(ancestor, os.W_OK),
+            f"Not a writable user-owned location: {ancestor}")
+    require(not path.exists() or path.is_dir(), f"Not a directory: {path}")
+
+
+def user_file(path):
+    require(not path.is_symlink(), f"Refusing to overwrite a symlink: {path}")
+    require(not path.exists() or (path.is_file() and path.stat().st_uid == os.getuid()
+                                 and os.access(path, os.W_OK)),
+            f"Not a writable user-owned file: {path}")
+
+
+def run(argv, env, cwd=None, capture=False):
+    result = subprocess.run([str(a) for a in argv], env=env, cwd=cwd,
+                            stdin=subprocess.DEVNULL, text=True,
+                            stdout=subprocess.PIPE if capture else sys.stderr,
+                            stderr=sys.stderr)
+    require(result.returncode == 0,
+            f"Command failed ({result.returncode}): {shlex.join([str(a) for a in argv])}")
+    return result.stdout
+
+
+def wine_environment(prefix):
+    env = dict(os.environ, WINEPREFIX=str(prefix), WINEARCH="win64",
+               WINEDLLOVERRIDES="mscoree,mshtml=", WINEDEBUG="-all")
+    # These upstream debugging switches bypass the helper that we must test.
+    env.pop("WINE_MSVC_RAW_STDOUT", None)
+    # Do not let noninteractive shell startup override the managed prefix.
+    env.pop("BASH_ENV", None)
+    env.pop("ENV", None)
+    return env
+
+
+def validate(root, env):
+    script = root / "bin/x64/msvcenv.sh"
+    require(script.is_file(), f"Missing generated environment: {script}")
+    values = run(["bash", "-c", 'source "$1"; printf "%s\\n" "$MSVCVER" "$SDKVER" '
+                  '"$BASE_UNIX" "$BINDIR" "$SDKBINDIR" "$ARCH"', "--", script],
+                 env, capture=True).splitlines()
+    require(len(values) == 6, "Invalid generated MSVC environment")
+    msvc, sdk, base, bindir, sdkbin, arch = values
+    require(re.fullmatch(r"14\.38\.\d+", msvc) and
+            re.fullmatch(r"10\.0\.22621\.\d+", sdk),
+            f"Wrong toolset selection: MSVC {msvc}, SDK {sdk}")
+    vc = root / "vc/tools/msvc" / msvc
+    kits = root / "kits/10"
+    require((base, bindir, sdkbin, arch) ==
+            (str(root), str(vc / "bin/Hostx64/x64"), str(kits / "bin" / sdk / "x64"), "x64"),
+            "Generated MSVC environment does not match the installed paths")
+    files = [vc / "bin/Hostx64/x64" / name for name in ("cl.exe", "link.exe")]
+    files += [vc / "include/vcruntime.h", vc / "lib/x64/libcmt.lib",
+              kits / "bin" / sdk / "x64/rc.exe",
+              kits / "include" / sdk / "um/windows.h",
+              kits / "include" / sdk / "shared/windef.h",
+              kits / "include" / sdk / "ucrt/stdio.h",
+              kits / "lib" / sdk / "um/x64/kernel32.lib",
+              kits / "lib" / sdk / "ucrt/x64/libucrt.lib",
+              root / "bin/msvctricks.exe", root / "bin/process_sourcedependencies.exe"]
+    for file in files:
+        require(file.is_file() and file.stat().st_size > 0, f"Missing toolchain artifact: {file}")
+    for wrapper in (SOURCE / "wrappers").iterdir():
+        installed = root / "bin/x64" / wrapper.name
+        if wrapper.is_symlink():
+            require(installed.is_symlink() and os.readlink(installed) == os.readlink(wrapper)
+                    and installed.is_file(), f"Invalid wrapper alias: {installed}")
+        else:
+            require(installed.is_file() and os.access(installed, os.X_OK),
+                    f"Missing executable wrapper: {installed}")
+    # The wrappers compute their root dynamically, so sibling staging can be promoted.
+    # Use a no-space working directory even when an inherited TMPDIR contains spaces.
+    with tempfile.TemporaryDirectory(prefix=".msvc-smoke-", dir=root.parent) as tmp:
+        work = Path(tmp)
+        smoke_env = dict(env, TMPDIR=tmp)
+        (work / "smoke.cpp").write_text('#include <windows.h>\nint main() { return GetCurrentProcessId() == 0; }\n')
+        run([root / "bin/x64/cl", "/nologo", "/c", "smoke.cpp", "/Fosmoke.obj",
+             "/sourceDependencies", "deps.json"], smoke_env, work)
+        require((work / "smoke.obj").is_file(), "Compiler did not produce smoke.obj")
+        deps = json.loads((work / "deps.json").read_text())["Data"]
+        require(Path(deps["Source"]) == work / "smoke.cpp" and
+                any(Path(p).name.lower() == "windows.h" and Path(p).is_file()
+                    for p in deps["Includes"]),
+                "Dependency helper did not produce usable Unix source/header paths")
+        run([root / "bin/x64/link", "/nologo", "smoke.obj", "/out:smoke.exe",
+             "kernel32.lib"], smoke_env, work)
+        require((work / "smoke.exe").is_file(), "Linker did not produce smoke.exe")
+        (work / "smoke.rc").write_text("1 RCDATA { 1 }\n")
+        run([root / "bin/x64/rc", "/fo", "smoke.res", "smoke.rc"], smoke_env, work)
+        require((work / "smoke.res").is_file(), "SDK rc did not produce smoke.res")
+    return {"msvc": msvc, "sdk": sdk}
+
+
+def read_ini(path):
+    parser = configparser.RawConfigParser(strict=False)
+    parser.optionxform = str
+    if path.exists():
+        parser.read_string(path.read_text())
+    return parser
+
+
+def register_engine(home, env):
+    path = home / ".config/Epic/UnrealEngine/Install.ini"
+    user_file(path)
+    original = path.read_bytes() if path.exists() else None
+    original_mode = path.stat().st_mode & 0o777 if path.exists() else None
+    before = read_ini(path)
+    entries = dict(before.items("Installations")) if before.has_section("Installations") else {}
+    if any(v.rstrip("/") == str(ENGINE) for v in entries.values()):
+        return "already-registered"
+    user_location(path.parent)
+    selector = ENGINE / "Engine/Binaries/Linux/UnrealVersionSelector"
+    require(selector.is_file() and os.access(selector, os.X_OK), f"Missing engine selector: {selector}")
+    try:
+        run([selector, "-register", "-unattended"], env)
+        after = read_ini(path)
+        mappings = dict(after.items("Installations")) if after.has_section("Installations") else {}
+        require(str(ENGINE) in mappings.values(), "Engine selector did not write its registration")
+        # Merge only the new registration into the original file. Native enumeration
+        # may prune unrelated mappings; never propagate those removals.
+        key = next(k for k, v in mappings.items() if v == str(ENGINE))
+        require(key not in entries or entries[key] == str(ENGINE), "Engine registration key collision")
+        if not before.has_section("Installations"):
+            before.add_section("Installations")
+        before.set("Installations", key, str(ENGINE))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as output:
+            before.write(output, space_around_delimiters=False)
+        path.chmod(0o600)
+        require(str(ENGINE) in dict(read_ini(path).items("Installations")).values(),
+                "Registration verification failed")
+    except BaseException:
+        if original is not None:
+            path.write_bytes(original)
+            path.chmod(original_mode)
+        elif path.exists():
+            path.unlink()
+        raise
+    return "registered"
+
+
+def configure(home, config, root, prefix):
+    user_location(config)
+    config.mkdir(parents=True, exist_ok=True)
+    file = config / "environment.sh"
+    user_file(file)
+    file.write_text("# Managed by satisfactory-modding-setup\n"
+                    f"export UE_WINE_MSVC={shlex.quote(str(root))}\n"
+                    f"export WINEPREFIX={shlex.quote(str(prefix))}\n"
+                    "export WINEARCH=win64\n")
+    file.chmod(0o600)
+    rc = home / ".unrealrc"
+    user_file(rc)
+    line = f"[ ! -f {shlex.quote(str(file))} ] || . {shlex.quote(str(file))} # satisfactory-modding-setup"
+    text = rc.read_text() if rc.exists() else ""
+    # Replace our own hook if XDG_CONFIG_HOME changed; leave all other hooks intact.
+    lines = [s for s in text.splitlines(keepends=True)
+             if not s.rstrip().endswith("# satisfactory-modding-setup")]
+    text = "".join(lines)
+    rc.write_text(text + ("\n" if text and not text.endswith("\n") else "") + line + "\n")
+    rc.chmod(0o600)
+    return file
+
+
+def setup(args):
+    require(os.getuid() != 0, "Run setup as your ordinary user, not root")
+    home = Path.home()
+    root, cache, prefix = (Path(p).expanduser().resolve() for p in
+                           (args.toolchain, args.cache, args.wineprefix))
+    require(not any(c.isspace() for c in str(root)),
+            "Toolchain path cannot contain whitespace (upstream wrapper limitation)")
+    marker = root / MARKER
+    existing = root.exists()
+    require(not existing or marker.is_file(), f"Preserving unrecognized destination: {root}")
+    for tool in TOOLS:
+        require(shutil.which(tool), f"Missing required tool: {tool}; install the package dependencies")
+    for path in (root, cache, prefix):
+        user_location(path)
+    for a, b in ((root, cache), (root, prefix), (cache, prefix)):
+        require(a != b and a not in b.parents and b not in a.parents,
+                "Toolchain, cache, and Wine prefix must be separate locations")
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config").resolve() / "satisfactory-modding"
+    user_location(config)
+    user_file(config / "environment.sh")
+    user_file(home / ".unrealrc")
+    require(SOURCE.is_dir(), f"Missing packaged source: {SOURCE}")
+    prefix_marker = prefix / MARKER
+    require(not existing or prefix_marker.is_file(), "Completed installation is missing its managed Wine prefix")
+    require(not existing or (prefix / "system.reg").is_file(),
+            "Completed installation is missing its initialized Wine prefix")
+    require(not prefix.exists() or prefix_marker.is_file() or not any(prefix.iterdir()),
+            f"Refusing to adopt an unmanaged Wine prefix: {prefix}")
+    require(prefix != (home / ".wine").resolve(), "Never use ~/.wine for this setup")
+    if prefix_marker.exists():
+        require(json.loads(prefix_marker.read_text()) == {"source_pin": PIN},
+                "Unrecognized Wine prefix marker")
+    if (prefix / "system.reg").exists():
+        require("#arch=win64" in (prefix / "system.reg").read_text(), "Wine prefix is not win64")
+    env = wine_environment(prefix)
+    if existing:
+        record = json.loads(marker.read_text())
+        require(isinstance(record, dict), "Invalid completed installation marker")
+        require(record.get("source_pin") == PIN and record.get("selection") == SELECTION and
+                record.get("toolchain") == str(root) and record.get("wineprefix") == str(prefix),
+                "Completed installation marker does not match this setup")
+        versions = validate(root, env)
+        require(record.get("versions") == versions, "Recorded toolchain versions changed")
+    else:
+        cache.mkdir(parents=True, exist_ok=True)
+        prefix.mkdir(parents=True, exist_ok=True)
+        prefix_marker.write_text(json.dumps({"source_pin": PIN}) + "\n")
+        prefix_marker.chmod(0o600)
+        root.parent.mkdir(parents=True, exist_ok=True)
+        stage = Path(tempfile.mkdtemp(prefix=f".{root.name}-stage-", dir=root.parent))
+        print(f"Staging toolchain in {stage}; failed stages are preserved for inspection", file=sys.stderr)
+        run(["python3", SOURCE / "vsdownload.py", "--dest", stage, "--cache", cache,
+             "--msvc-version", "17.8", "--sdk-version", "10.0.22621",
+             "--channel", "release.ltsc.17.8", "--accept-license"], env)
+        run(["wine", "wineboot", "-u"], env)
+        # wineboot may exit before the server flushes system.reg to disk.
+        run(["wineserver", "-w"], env)
+        require((prefix / "system.reg").is_file() and
+                "#arch=win64" in (prefix / "system.reg").read_text(),
+                "Wine initialization did not produce a win64 prefix")
+        with tempfile.TemporaryDirectory(prefix=".msvc-tmp-", dir=root.parent) as tmp:
+            run(["bash", SOURCE / "install.sh", stage], dict(env, TMPDIR=tmp))
+        versions = validate(stage, env)
+        require(not root.exists(), f"Destination appeared during setup; preserved: {root}")
+        stage.rename(root)
+        # Recheck relocation rather than assuming generated paths remain valid.
+        versions = validate(root, env)
+        record = {"source_pin": PIN, "selection": SELECTION, "versions": versions,
+                  "toolchain": str(root), "cache": str(cache), "wineprefix": str(prefix)}
+        marker.write_text(json.dumps(record, indent=2) + "\n")
+        marker.chmod(0o600)
+    # A previous successful configuration must not cover a failed rerun.
+    record.pop("configured", None)
+    marker.write_text(json.dumps(record, indent=2) + "\n")
+    marker.chmod(0o600)
+    registration = register_engine(home, env)
+    file = configure(home, config, root, prefix)
+    record["configured"] = {"home": str(home), "environment": str(file)}
+    marker.write_text(json.dumps(record, indent=2) + "\n")
+    return {"status": "complete", "reused": existing, "toolchain": str(root),
+            "cache": str(cache), "wineprefix": str(prefix), "environment": str(file),
+            "versions": versions, "source_pin": PIN, "registration": registration}
+
+
+def main():
+    home = Path.home()
+    data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "satisfactory-modding"
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache") / "satisfactory-modding/msvc-wine"
+    parser = argparse.ArgumentParser(description="Install the pinned MSVC/SDK selection as your user; never prompts.")
+    parser.add_argument("--accept-msvc-license", action="store_true", help="optional compatibility flag; not required")
+    parser.add_argument("--toolchain", default=str(data / "msvc"))
+    parser.add_argument("--cache", default=str(cache))
+    parser.add_argument("--wineprefix", default=str(data / "wineprefix"))
+    parser.add_argument("--json", action="store_true", help="print one JSON summary on success")
+    args = parser.parse_args()
+    try:
+        result = setup(args)
+    except (SetupError, OSError, ValueError, TypeError, KeyError, configparser.Error) as error:
+        print(f"satisfactory-modding-setup: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, sort_keys=True) if args.json else
+          f"Setup complete: {result['toolchain']} ({result['registration']})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
