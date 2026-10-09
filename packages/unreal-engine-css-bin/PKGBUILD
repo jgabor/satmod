@@ -1,7 +1,9 @@
 # Maintainer: Jonathan Gabor
+# makepkg reads metadata and supplies srcdir/pkgdir.
+# shellcheck disable=SC2034,SC2154
 pkgname=unreal-engine-css-bin
 pkgver=5.6.1.css83
-pkgrel=3
+pkgrel=4
 pkgdesc='Prebuilt Coffee Stain Unreal Engine for Satisfactory mod development'
 arch=('x86_64')
 url='https://github.com/satisfactorymodding/UnrealEngine'
@@ -64,7 +66,9 @@ package() {
     return 1
   fi
   if ! patch --batch --forward -d "$stage" -p1 < "$srcdir/setup-dotnet-permissions.patch" ||
-     ! find "$stage" -type d -exec chmod 00755 {} +; then
+     ! rm -rf -- "$stage/Engine/Source/Programs/LiveLinkHub" ||
+     ! find "$stage" -type d -exec chmod 2775 {} + ||
+     ! find "$stage" -type f -exec chmod g+w {} +; then
     rm -rf -- "$stage"
     return 1
   fi

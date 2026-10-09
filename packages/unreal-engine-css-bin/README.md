@@ -1,113 +1,111 @@
 # unreal-engine-css-bin
 
-The engine recipe packages CSS release `5.6.1-css-83` as `5.6.1.css83-3` for
-x86_64 under `/opt/unreal-engine-css`. The user reports that pkgrel 3 is installed
-and its registration reminder works. These installed-state results were not
-independently rerun here.
+This package installs the prebuilt Coffee Stain Studios (CSS) Unreal Engine editor
+for Linux under `/opt/unreal-engine-css`. The recipe is pinned to release
+`5.6.1-css-83`, packaged as version `5.6.1.css83`.
+[`scripts/update-engine-release`](../../scripts/README.md) moves the pin to a
+newer release.
 
-## Install the built pkgrel 3 package
+Most people get it through [bootstrap](../../README.md). This page covers building
+it by hand.
 
-From the repository root, install when you are ready to change your system:
+## Prerequisites
 
-```bash
-sudo pacman -U .cache/engine-recipe/packages/unreal-engine-css-bin-5.6.1.css83-3-x86_64.pkg.tar.zst
+- **Access.** Link your Epic Games and GitHub accounts, get access to
+  `satisfactorymodding/UnrealEngine`, and run `gh auth login`. The recipe's
+  download helper uses your existing `gh` login. It never logs in for you.
+- **Tools.** `base-devel` and `github-cli`. `makepkg -s` installs the rest.
+- **Disk.** About 48 GB free to build, and about 30 GB for the installed engine.
+
+## Build and install
+
+As your ordinary user:
+
+```sh
+cd packages/unreal-engine-css-bin
+makepkg -si
 ```
 
-If not already registered, register the engine **as your ordinary user, without sudo**:
+makepkg downloads the release's archive parts (about 8 GB in total), checks each
+against its pinned SHA-256, extracts them, and builds the package. Parts are saved
+in makepkg's `SRCDEST`, which is this directory unless you set one. Keep them to
+rebuild without downloading again. Bootstrap keeps its parts in
+`.cache/engine-recipe/sources/` instead.
 
-```bash
+To download two parts at a time, prefetch them first. Pass your `SRCDEST` if you
+set one:
+
+```sh
+./prefetch-engine-sources [SRCDEST]
+makepkg -si
+```
+
+Prefetch skips files that already exist and does not check them. makepkg still
+checks every checksum before building.
+
+The download helper writes to a temporary file and only moves it into place
+after the size and upstream SHA-256 match, so an interrupted download never
+leaves a partial part under its final name.
+
+## Register the engine
+
+`satisfactory-modding-setup` registers the engine for you. If you only install
+the engine, register it yourself **as your ordinary user, without sudo**:
+
+```sh
 /opt/unreal-engine-css/Engine/Binaries/Linux/UnrealVersionSelector -register -unattended
 ```
 
-Install and upgrade print this instruction unless `SUDO_USER` identifies a non-root
-account whose `~/.config/Epic/UnrealEngine/Install.ini` has an `[Installations]`
-entry for `/opt/unreal-engine-css`. If the account is unknown or the check fails,
-the reminder is conditional. The script never registers the engine or writes user
-configuration. Fixture tests cover the notice. The user tested the real notice:
-commenting out the registration entry and reinstalling printed the reminder;
-registering and reinstalling again printed no reminder.
+On install and upgrade, the package prints this command, unless it can see that
+the account that ran `sudo` has already registered the engine. The hook only
+prints. It never writes to your account.
 
-The user installed pkgrel 2 successfully; the package query, root ownership,
-`/opt` directory mode 755, and dotnet permission guard were checked. The guard
-skips `chmod` when dotnet is already executable, avoiding a non-owner permission
-failure in the root-owned `/opt` installation. Normal GUI
-startup remains unverified. Check normal editor startup and user-owned cache state.
-The earlier isolated
-Xvfb/NullRHI startup failed with no usable default DDC nodes and failed Zen startup;
-the cause is unknown in that limited test environment. It was not a normal GUI test.
-MSVC installation and the `satisfactory-modding-setup` command are next, not yet
-implemented. Engine registration is manual until that command exists.
+## Engine write access
 
-## Build prerequisites
+Unreal's build tools write into the engine folder while generating IDE project
+files and building mods, for example under `Engine/Intermediate` and next to each
+plugin's build rules. A read-only engine makes Rider fail with permission errors.
 
-Use Arch `base-devel`, `github-cli` (provides `gh`), `zstd`, and `patch`.
-For uncached downloads, create and link your Epic Games and GitHub accounts,
-obtain access to `satisfactorymodding/UnrealEngine`, and authenticate `gh` first.
-The helper checks existing authentication; it never logs in or accepts terms.
-Authorized use remains subject to the [Unreal Engine EULA](https://www.unrealengine.com/eula)
-and applicable upstream terms. Repository access is not redistribution permission.
-The unchanged upstream `LICENSE.md` notice and bundled third-party notices are packaged.
+So the engine is owned by root and the `unreal-engine-css` group. Directories are
+group-writable and setgid, so new files inherit the group. Files are
+group-writable. Nothing is writable by everyone. On install and upgrade the
+package creates the group if needed and reassigns the engine to it, because
+pacman installs files as `root:root`.
 
-Allow roughly **48 GB plus overhead** for parts, build tree, and one package,
-and roughly **30 GB plus metadata/cache** for installation.
+Join the group once, then log out and back in:
 
-## Rebuild only when needed
-
-For a fresh uncached build, run `makepkg` as an ordinary user from
-`packages/unreal-engine-css-bin`. Its download agent acquires the four pinned parts.
-Makepkg's acquisition is serial; optional prefetch runs at most two one-asset
-helpers at once. From the recipe directory, with no separate `SRCDEST`:
-
-```bash
-./prefetch-engine-sources
-makepkg --verifysource && makepkg
+```sh
+sudo gpasswd -a "$USER" unreal-engine-css
 ```
 
-Prefetch reads the adjacent trusted `PKGBUILD` and skips existing files and symlinks,
-including broken aliases. It does not verify cached bytes or repair bad entries.
-Normal makepkg checksum verification remains required. Downloads use the existing
-helper's atomic publication. Prefetch is optional, uses existing `gh` authentication
-only for missing parts, and does not change packaging or decompression.
-With a configured `SRCDEST`, pass that same source-cache directory to prefetch
-and use the matching makepkg configuration for verification and build.
+Bootstrap does this for you. The install hook prints the command unless it can see
+that the account that ran `sudo` is already a member. `id` shows your groups.
 
-For this checkout's existing cache, start at the repository root:
+Files you create in the engine get your default permissions, which usually means
+other group members can read them but not change them. That only matters if
+several people on one machine share the engine.
 
-```bash
-repo=$PWD
-mkdir -p "$repo/.cache/engine-recipe/"{sources,build,packages,logs,tmp}
-config="$repo/.cache/engine-recipe/makepkg.conf"
-if [[ ! -e "$config" ]]; then
-  cat > "$config" <<EOF
-source /etc/makepkg.conf
-SRCDEST="$repo/.cache/engine-recipe/sources"
-BUILDDIR="$repo/.cache/engine-recipe/build"
-PKGDEST="$repo/.cache/engine-recipe/packages"
-LOGDEST="$repo/.cache/engine-recipe/logs"
-COMPRESSZST=(zstd -c -T2 -3 -)
-EOF
-fi
-for part in 00 01 02 03; do
-  alias="$repo/.cache/engine-recipe/sources/UnrealEngine-CSS-5.6.1-css-83-Editor-Linux.tar.zst.$part"
-  [[ -e "$alias" ]] || ln -s "$repo/.cache/upstream/engine/UnrealEngine-CSS-Editor-Linux.tar.zst.$part" "$alias"
-done
-export TMPDIR="$repo/.cache/engine-recipe/tmp"
-cd "$repo/packages/unreal-engine-css-bin"
-./prefetch-engine-sources "$repo/.cache/engine-recipe/sources" # Optional; all four are cached here.
-makepkg --config "$config" --verifysource
-makepkg --config "$config"
-```
+Because of this, `pacman -Qkk unreal-engine-css-bin` reports group differences
+on engine files. That is expected.
 
-The aliases map original `.00` through `.03` filenames to release-specific names
-without copying 8.26 GB. Keep their original targets available; do not use partial
-downloads. When reusing another makepkg configuration, inspect its paths and
-recreate its configured build/output/log directories after cleanup. Keep staging and package
-directories on the same filesystem. Cached sources need no GitHub credentials.
+Removing the package keeps the group, and pacman leaves behind any files the build
+tools created. Delete `/opt/unreal-engine-css` by hand to remove them.
 
-## Built package
+## What the package changes
 
-The retained package is **10,074,221,257 bytes**, SHA-256
-`d38463d687d9cda4a26347f5dc934c1231cbbfce4e5e760e098823756ab740db`.
-It was built with normal dependency and integrity checks. The four cached parts,
-source aliases and build configuration remain available for rebuilding.
-Normal GUI startup remains unverified. Prefetch network throughput has not been measured.
+- The engine is writable by the `unreal-engine-css` group. See
+  [Engine write access](#engine-write-access).
+- `Engine/Source/Programs/LiveLinkHub` is left out. Its build rules need a module
+  the prebuilt engine does not include, and Rider then refuses to load the
+  project. The Satisfactory guide also says to delete it. Modding does not use it.
+- `setup-dotnet-permissions.patch` makes `SetupDotnet.sh` skip its `chmod` when
+  the bundled `dotnet` is already executable. Without it, the script fails for
+  users who do not own the install.
+- Prebuilt binaries are not stripped, and static libraries are kept.
+- The package ships the upstream `LICENSE.md`, which points to the
+  [Unreal Engine EULA](https://www.unrealengine.com/eula), and keeps the bundled
+  third-party notices. Do not redistribute built packages.
+
+Rider project generation, a full editor build of the Starter Project, and editor
+startup have been tested with this setup. See [TODO.md](../../TODO.md) for what
+is still open.

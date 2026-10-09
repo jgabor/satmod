@@ -34,17 +34,34 @@ class EngineNoticeTests(unittest.TestCase):
         getent = self.bin / "getent"
         getent.write_text(
             "#!/bin/bash\n"
+            'if [[ $1 == group && $2 == unreal-engine-css ]]; then\n'
+            '  [[ ${GROUP_MISSING:-0} == 0 ]] || exit 2\n'
+            '  printf "%s\\n" "unreal-engine-css:x:2000:${MEMBERS-fixture}"\n'
+            '  exit 0\n'
+            'fi\n'
             "[[ $1 == passwd && $2 == fixture ]] || exit 2\n"
             "[[ ${LOOKUP_FAIL:-0} == 0 ]] || exit 2\n"
             'printf "%s\\n" "$PASSWD_RECORD"\n'
         )
         getent.chmod(0o755)
+        for command in ("groupadd", "chgrp"):
+            stub = self.bin / command
+            stub.write_text(
+                '#!/bin/bash\n'
+                f'printf "%s\\n" "{command} $*" >> "$CALLS"\n'
+                f'[[ ${{FAIL_COMMAND:-}} != {command} ]]\n'
+            )
+            stub.chmod(0o755)
         self.env = dict(
             os.environ,
             PATH=str(self.bin),
             HOME=str(self.root_home),
             SUDO_USER="fixture",
             INSTALL=str(INSTALL),
+            CALLS=str(self.root / "calls"),
+            GROUP_MISSING="0",
+            MEMBERS="fixture",
+            FAIL_COMMAND="",
             PASSWD_RECORD=f"fixture:x:1000:1000:Fixture:{self.home}:/bin/bash",
         )
         self.env.pop("BASH_ENV", None)
@@ -55,7 +72,7 @@ class EngineNoticeTests(unittest.TestCase):
                 p.stat().st_mode,
                 p.read_bytes() if p.is_file() else None,
             )
-            for p in self.root.rglob("*")
+            for p in self.root.rglob("*") if p.name != "calls"
         }
 
     def check_notice(self, expected=True):
@@ -77,8 +94,65 @@ class EngineNoticeTests(unittest.TestCase):
                         "If not already registered for your account", result.stdout
                     )
                 else:
-                    self.assertEqual(result.stdout, "")
+                    self.assertNotIn(COMMAND, result.stdout)
                 self.assertEqual(self.snapshot(), before, "fixture state changed")
+
+    def group_hook(self, hook="post_install"):
+        return subprocess.run(
+            ["/usr/bin/bash", "-c", f'source "$INSTALL"; {hook} 4 3'],
+            env=self.env, text=True, capture_output=True,
+        )
+
+    def test_group_missing_creates_group_and_assigns_ownership(self):
+        self.env["GROUP_MISSING"] = "1"
+        result = self.group_hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "calls").read_text().splitlines(), [
+            "groupadd -r unreal-engine-css",
+            "chgrp -R unreal-engine-css /opt/unreal-engine-css",
+        ])
+
+    def test_group_present_only_assigns_ownership(self):
+        result = self.group_hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "calls").read_text().splitlines(), [
+            "chgrp -R unreal-engine-css /opt/unreal-engine-css",
+        ])
+
+    def test_group_failures_warn_and_do_not_fail_hooks(self):
+        for command in ("groupadd", "chgrp"):
+            for hook in ("post_install", "post_upgrade"):
+                with self.subTest(command=command, hook=hook):
+                    self.env["GROUP_MISSING"] = "1"
+                    self.env["FAIL_COMMAND"] = command
+                    result = self.group_hook(hook)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("Warning:", result.stderr)
+                    self.assertIn(COMMAND, result.stdout)
+
+    def test_membership_notice_shown_to_non_member_even_when_registered(self):
+        self.env["MEMBERS"] = "other,fixture-other"
+        self.ini.write_text("[Installations]\nCSS=/opt/unreal-engine-css\n")
+        result = self.group_hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('sudo gpasswd -a "$USER" unreal-engine-css', result.stdout)
+        self.assertIn("log out and back in", result.stdout)
+        self.assertNotIn(COMMAND, result.stdout)
+
+    def test_membership_notice_suppressed_for_verified_member(self):
+        for record, members in (
+            (f"fixture:x:1000:1000:Fixture:{self.home}:/bin/bash", "other,fixture,last"),
+            (f"fixture:x:1000:2000:Fixture:{self.home}:/bin/bash", ""),
+        ):
+            self.env["PASSWD_RECORD"] = record
+            self.env["MEMBERS"] = members
+            self.assertNotIn("gpasswd", self.group_hook().stdout)
+
+    def test_membership_notice_shown_for_unverified_account(self):
+        for user in ("", "root", "fixture"):
+            self.env["SUDO_USER"] = user
+            self.env["LOOKUP_FAIL"] = "1"
+            self.assertIn("gpasswd", self.group_hook().stdout)
 
     def test_missing_ini_prints_instruction(self):
         self.check_notice()

@@ -1,7 +1,7 @@
 pkgbase = unreal-engine-css-bin
 	pkgdesc = Prebuilt Coffee Stain Unreal Engine for Satisfactory mod development
 	pkgver = 5.6.1.css83
-	pkgrel = 3
+	pkgrel = 4
 	url = https://github.com/satisfactorymodding/UnrealEngine
 	install = unreal-engine-css-bin.install
 	arch = x86_64

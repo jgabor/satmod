@@ -101,7 +101,7 @@ class EngineRecipeTests(unittest.TestCase):
         patch = (RECIPE / "setup-dotnet-permissions.patch").read_bytes()
         self.assertEqual(hashlib.sha256(patch).hexdigest(), data["sha256sums"][5])
         self.assertEqual(data["options"], ["!strip", "!debug", "staticlibs"])
-        self.assertEqual(data["pkgrel"], ["3"])
+        self.assertEqual(data["pkgrel"], ["4"])
         self.assertEqual(
             data["depends"],
             [
@@ -165,11 +165,15 @@ class EngineRecipeTests(unittest.TestCase):
                     0o755,
                 ),
                 ("Engine/libfixture.a", b"!<arch>\n", 0o644),
+                ("Engine/Source/Programs/LiveLinkHub/LiveLinkHub.Target.cs", b"rules", 0o644),
                 ("Engine/Source/ThirdParty/Licenses/fixture.txt", b"notice\n", 0o644),
             ):
                 info = tarfile.TarInfo(name)
                 info.size, info.mode = len(payload), mode
                 archive.addfile(info, io.BytesIO(payload))
+            info = tarfile.TarInfo("Engine/fixture-link")
+            info.type, info.linkname = tarfile.SYMTYPE, "libfixture.a"
+            archive.addfile(info)
             info = tarfile.TarInfo("Engine/setgid-directory")
             info.type, info.mode = tarfile.DIRTYPE, 0o2775
             archive.addfile(info)
@@ -213,9 +217,9 @@ class EngineRecipeTests(unittest.TestCase):
                 '[ -x "$UE_DOTNET_DIR/dotnet" ] || chmod', (engine / SCRIPT).read_text()
             )
             self.assertEqual(
-                (engine / "Engine/setgid-directory").stat().st_mode & 0o7777, 0o755
+                (engine / "Engine/setgid-directory").stat().st_mode & 0o7777, 0o2775
             )
-            self.assertEqual((engine / SCRIPT).stat().st_mode & 0o7777, 0o755)
+            self.assertEqual((engine / SCRIPT).stat().st_mode & 0o7777, 0o775)
             self.assertEqual(
                 (engine / "Engine/libfixture.a").read_bytes(), b"!<arch>\n"
             )
@@ -225,6 +229,18 @@ class EngineRecipeTests(unittest.TestCase):
                 ).read_bytes(),
                 (RECIPE / "LICENSE.md").read_bytes(),
             )
+            self.assertFalse((engine / "Engine/Source/Programs/LiveLinkHub").exists())
+            self.assertEqual((engine / "Engine/libfixture.a").stat().st_mode & 0o7777, 0o664)
+            self.assertTrue((engine / "Engine/fixture-link").is_symlink())
+            self.assertEqual(os.readlink(engine / "Engine/fixture-link"), "libfixture.a")
+            for path in engine.rglob("*"):
+                if path.is_symlink():
+                    continue
+                mode = path.stat().st_mode & 0o7777
+                self.assertFalse(mode & 0o002, str(path))
+                self.assertTrue(mode & 0o020, str(path))
+                if path.is_dir():
+                    self.assertEqual(mode, 0o2775, str(path))
             self.assertEqual(list(self.src.glob("engine-stage.*")), [])
             # makepkg clears pkgdir before package()/--repackage.
             shutil.rmtree(self.pkg)
