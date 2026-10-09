@@ -4,12 +4,12 @@
 
 Automate the
 [Linux setup guide](https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html)
-up to, but not including, **Project Setup**, with two Arch packages:
+through command-line **Project Setup**, with two Arch packages:
 
 - `unreal-engine-css-bin`: the prebuilt CSS engine under `/opt/unreal-engine-css`.
 - `satisfactory-modding-setup`: provides `satisfactory-modding setup` to install
   MSVC under Wine, register the engine, and write the build environment. The CLI
-  also provides `run` to start tools, `doctor` to check the installation, and
+  also provides `project init` for Starter Project and Wwise setup, `run` to start tools, `doctor` to check the installation, and
   `mod new` and `mod build` for library scaffolding and Windows client packaging.
 
 Rules that hold throughout:
@@ -29,6 +29,18 @@ Rules that hold throughout:
 ## Done
 
 Git history has the details.
+
+- **CLI Project Setup (in progress, pkgrel 6 unreleased).** `project init DIR`
+  clones the Starter Project, verifies and caches pinned wwise-cli, downloads
+  and integrates the guide's distinct SDK and integration versions, creates the
+  Wwise project and soundbanks headless under managed Wine, and sets audio
+  routing without changing unrelated INI bytes. Fake-tool tests cover retries,
+  credentials, downloads, and settings. Audiokinetic login and Rider setup stay
+  manual. Version inputs are recorded under `wwise` in upstream-inputs.json.
+  The user verified the real pinned wwise-cli download and checksum, headless
+  Wwise project and soundbank creation under Wine in a scratch project, exactly
+  one changed INI line, and idempotent reruns. Real git clone and wwise-cli SDK
+  download/integration with credentials have not been verified through this command.
 
 - **CLI mod commands (in progress, pkgrel 6 unreleased).** `mod new` scaffolds
   Blueprint or C++ library mods from the project's Alpakit templates. `mod build`
@@ -108,7 +120,6 @@ Git history has the details.
 
 ## Future
 
-- `satisfactory-modding project init` will automate Project Setup as described below.
 
 ### AUR publishing
 
@@ -123,25 +134,12 @@ After the completion criteria are met:
 - [ ] Explain the authenticated download and license terms on each package page.
 - [ ] Set up a reviewed process for engine updates and for user feedback.
 
-### Automate Project Setup
+### Project Setup verification
 
-The manual run on 2026-10-09 answered most feasibility questions. Proposed shape:
-
-- A `wwise-cli-bin` package with the pinned release binary. Its upstream repo has
-  no license file yet, so ask the author before any AUR release.
-- A user-run `satisfactory-modding project init DIR` command in the setup package. It
-  clones the Starter Project if `DIR` does not exist, runs wwise-cli `download`
-  and `integrate-ue` with the guide's versions, and checks the result. It takes
-  Audiokinetic credentials from `WWISE_EMAIL`/`WWISE_PASSWORD` or asks in the
-  terminal, and never stores them.
-- A bootstrap preflight that checks `gh` login, repository access, sudo, free
-  disk space, and Wwise credentials before the long download.
-
-Still open:
-
-- [ ] Try `WwiseConsole.exe create-new-project` and `generate-soundbank` under
-  Wine, to replace the two Authoring GUI steps.
-- [ ] Set the Root Output Path and audio routing without the editor GUI, without
-  overwriting other edits to `Config/DefaultGame.ini`.
-- [ ] Decide how to track the guide's Wwise SDK and integration versions.
-- [ ] Agree on scope, then build it.
+- [ ] Run `project init` on a clean machine, including a real git clone and
+  wwise-cli SDK download/integration with terminal Audiokinetic credentials.
+- [ ] Verify WwiseConsole project creation and soundbank generation in the
+  setup-managed Wine prefix on a clean machine.
+- [ ] Build the initialized project in Rider and load the editor and a packaged
+  mod in game.
+- [ ] Ask the wwise-cli author about its missing license before any redistribution.

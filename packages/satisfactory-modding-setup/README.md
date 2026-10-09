@@ -5,6 +5,7 @@ This package provides one CLI, `satisfactory-modding`, with these commands:
 - `satisfactory-modding setup` installs the MSVC compiler and Windows SDK under
   Wine for your user, registers the engine, and writes the environment the engine
   needs to build mods. Run it yourself; package installation never runs it.
+- `satisfactory-modding project init DIR` clones and configures the Starter Project and Wwise.
 - `satisfactory-modding run` runs any command, such as your IDE, with that
   environment.
 - `satisfactory-modding mod new` creates a library mod from Alpakit templates.
@@ -18,9 +19,56 @@ their child processes, so a `WINEPREFIX` set in shell startup files does not lea
 into builds. Rerun `satisfactory-modding setup` to apply this fix to an existing
 toolchain.
 
-It covers the guide up to, but not including, **Project Setup**. Most people get it
+It covers the toolchain and command-line **Project Setup**. Most people get it
 through [bootstrap](../../README.md). This page covers building it by hand and
 what setup does and how to create and build mods after Project Setup.
+
+## Initialize a project
+
+After `satisfactory-modding setup`, run:
+
+```sh
+satisfactory-modding project init ~/git/SatisfactoryModLoader
+```
+
+The command performs a full git clone when DIR is absent. An existing directory
+must contain `FactoryGame.uproject`; it never pulls or resets git state. It then:
+
+1. Downloads wwise-cli v0.2.4 and verifies its pinned size and SHA-256. The binary
+   lives at `${XDG_CACHE_HOME:-~/.cache}/satisfactory-modding/wwise-cli/v0.2.4/wwise-cli`.
+   Use `--wwise-cli PATH` to supply your own executable instead. The upstream
+   wwise-cli repository has no license file; this package does not redistribute it.
+2. Downloads SDK and Authoring 2023.1.14.8770 using the guide's platform filters.
+   Wwise's cache is `${XDG_CACHE_HOME:-~/.cache}/wwise-cli/wwise/2023.1.14.8770`.
+3. Integrates Unreal version 2023.1.14.3555 and checks Wwise and WwiseNiagara.
+4. Creates `SatisfactoryModLoader_WwiseProject/SatisfactoryModLoader_WwiseProject.wproj`
+   and generates Windows soundbanks using WwiseConsole under the managed Wine environment.
+5. Sets only AkSettings `AudioRouting=Separate` in `Config/DefaultGame.ini`,
+   preserving the BOM, line endings, file mode, and other settings through atomic
+   replacement. It checks the tracked
+   WwiseProjectPath and RootOutputPath and refuses unexpected values.
+
+Each completed step is skipped on rerun, so interrupted runs can resume.
+The summary lists `done` or `skipped` for each step. `--json` emits one object
+with `status`, `project`, and `steps` containing `id`, `status`, and `detail`.
+Child output and diagnostics always go to stderr, including authentication prompts.
+Only stdin is inherited for interactive authentication.
+
+wwise-cli reads `WWISE_EMAIL` and `WWISE_PASSWORD` from the environment. If either
+is missing, it prompts using the terminal for download and integration. Without
+a terminal, both variables are required. Only wwise-cli children receive these
+credentials. The CLI never stores them or adds them to command arguments. Fully completed runs need no credentials.
+
+Install Rider's **Unreal Project Model Mods Fix** plugin and open the project:
+
+```sh
+satisfactory-modding run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
+```
+
+Build with Development, Editor, and Linux selected, then start the editor.
+`mod new` and `mod build` are available for creating and packaging mods.
+The initializer does not launch Rider or the editor. Keep the local
+`Config/DefaultGame.ini` audio-routing change out of commits sent upstream.
 
 ## Build and install
 
@@ -176,7 +224,9 @@ satisfactory-modding mod new MyCppMod --cpp
 `REF` is the permanent mod reference. Use only letters, digits, and underscores.
 Unreal mount point names (`Game`, `Engine`, `Script`, `Memory`, `Temp`, `Config`)
 and existing plugin names are reserved. The command refuses an existing mod
-directory or a plugin with the same name anywhere in the project.
+directory or a plugin with the same name anywhere in the project. With `--cpp`,
+REF must start with a letter or underscore and must not match an existing module
+name in the project's `Source/` directory. Blueprint-only names may start with a digit.
 
 The default is Alpakit's **Blueprint Library (Advanced)** template,
 `Mods/Alpakit/Templates/BlueprintBlank`. `--cpp` selects **C++ & Blueprint
@@ -187,7 +237,8 @@ additional plugin directory. The command creates `Mods/REF`, replaces
 `REF.uplugin`. The C++ module uses `Runtime` and `Default`, with uppercase API
 macros. The editor or `satisfactory-modding mod build REF` compiles its source.
 Creation uses a temporary sibling directory and a rename; failures remove the
-staging directory instead of leaving a partial mod.
+staging directory instead of leaving a partial mod. The created mod directory
+uses the current umask, like a normal directory.
 
 The descriptor follows the wizard defaults: version and semantic version
 `1.0.0`, category `Modding`, content enabled, and SML enabled with `^` followed

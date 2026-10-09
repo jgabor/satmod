@@ -2,7 +2,7 @@
 
 Two **Arch Linux x86_64** packages that automate the
 [Linux setup guide](https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html)
-up to, but not including, **Project Setup**:
+through command-line **Project Setup**:
 
 - [unreal-engine-css-bin](packages/unreal-engine-css-bin/README.md) packages the
   prebuilt Coffee Stain Studios (CSS) Unreal Engine under `/opt/unreal-engine-css`.
@@ -39,7 +39,7 @@ up to, but not including, **Project Setup**:
 Bootstrap asks for your sudo password once at the start, and again only if the
 build outlasts sudo's timeout. It adds you to the `unreal-engine-css` group, which
 can write to the engine. If it tells you to, **log out and back in** before you
-continue. The remaining steps are manual. See [Next: Project Setup](#next-project-setup).
+continue. Initialize your project next. See [Next: Project Setup](#next-project-setup).
 
 Running bootstrap downloads Microsoft build tools. See
 [Licenses and terms](#licenses-and-terms) first.
@@ -95,57 +95,39 @@ engine files. Hooks never download tools, set up Wine, or change your account.
 
 ## Next: Project Setup
 
-This repository stops where the guide's
-[Project Setup](https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html)
-section begins. Project Setup remains manual. After it is complete, the CLI can
-create library mods and build mods without opening the editor.
-Follow the guide in this order. The notes below cover what the guide leaves out
-or what differs with these packages. The whole path, through a Rider build and
-the first editor start, has been tested with the packages.
+After toolchain setup, run:
 
-1. **Download the Starter Project**, for example with
-   `git clone https://github.com/satisfactorymodding/SatisfactoryModLoader`.
-2. **Install Wwise with wwise-cli.** This step is required. Download the latest
-   `wwise-cli` from its [releases page](https://github.com/mircearoata/wwise-cli/releases/latest),
-   then run its `download` and `integrate-ue` commands exactly as the guide shows.
-   Run `integrate-ue` from the Starter Project folder, with
-   `--project ./FactoryGame.uproject`. Both commands ask for your Audiokinetic
-   email and password, or read them from `WWISE_EMAIL` and `WWISE_PASSWORD`.
-   `integrate-ue` prints nothing when it succeeds. Afterwards `Plugins/Wwise` and
-   `Plugins/WwiseNiagara` exist in the project.
-3. **Generate the Wwise project and sound banks** in the Wwise Authoring app.
-   Start it with plain `wine`, as the guide shows. Running it inside the managed
-   Wine prefix has not been tested. Name the project
-   `SatisfactoryModLoader_WwiseProject` and create it in the Starter Project
-   folder. A new Wwise project only has the Windows platform, so the banks land in
-   `GeneratedSoundBanks/Windows/`.
-4. **Set up Rider.** Open the `.uproject` through the launcher, so builds can find
-   the MSVC toolchain:
+```sh
+satisfactory-modding project init ~/git/SatisfactoryModLoader
+```
 
-   ```sh
-   satisfactory-modding run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
-   ```
+This clones the Starter Project, downloads the pinned wwise-cli and Wwise SDK,
+integrates Wwise, creates the Wwise project and Windows soundbanks under Wine,
+and sets audio routing. Only the Audiokinetic login needs input. For unattended
+runs, provide `WWISE_EMAIL` and `WWISE_PASSWORD` in the environment. Reruns skip
+completed steps. See the [command details](packages/satisfactory-modding-setup/README.md#initialize-a-project)
+for cache paths, version pins, and `--wwise-cli` and `--json` options.
 
-   Install the **Unreal Project Model Mods Fix** plugin (by Archengius) from
-   Rider's plugin marketplace, or Rider hides the `Mods` folder. The guide also
-   says to delete `Engine/Source/Programs/LiveLinkHub` from the engine. The
-   engine package already leaves it out. The guide's optional UnrealBuildTool
-   patch (`BuildUBT.sh`) is not applied and was not needed.
-5. **Compile the project** in Rider with **Development**, **Editor**, and
-   **Linux** selected. The first build takes a long time.
-6. **Open the editor.** When it asks for the GeneratedSoundBanks folder, click
-   **Yes**. In **Wwise > Integration Settings**, set **Root Output Path** to the
-   Wwise project's `GeneratedSoundBanks` folder, and set **Unreal Audio Routing**
-   to **Both Wwise and Unreal audio**. Unreal stores the path relative to the
-   project's `Content` folder, as
-   `../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks`. That is correct.
-   These settings change `Config/DefaultGame.ini`, which the Starter Project
-   tracks in git, so keep that change out of commits you send upstream.
+Install Rider's **Unreal Project Model Mods Fix** plugin, then open the project:
 
-Copy the wwise-cli commands from the guide rather than from this README, because
-the guide updates the Wwise versions. The setup package already installs what
-these steps need from the system: Wine, and `dos2unix` for SML's Wwise patches.
-The engine loads the MSVC environment itself through `~/.unrealrc`.
+```sh
+satisfactory-modding run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
+```
+
+Compile with **Development**, **Editor**, and **Linux** selected, then open the
+editor. `mod new` and `mod build` can create and package mods from the CLI.
+The engine package already omits LiveLinkHub. The guide's optional BuildUBT.sh
+patch is not applied and was not needed in the verified manual build.
+
+Manual fallback: follow the guide's
+[Project Setup](https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html).
+Clone the Starter Project, run wwise-cli download and integrate-ue, create
+`SatisfactoryModLoader_WwiseProject` in Wwise Authoring, and generate Windows
+soundbanks. In the editor, set Root Output Path to
+`../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks` and audio routing to
+**Both Wwise and Unreal audio**. Keep the local `Config/DefaultGame.ini` change
+out of commits sent upstream. The manual path has been verified end to end;
+the CLI path still needs clean-machine verification.
 
 If Rider shows **Project 'Engine' load failed** with a permission error in its
 UnrealBuildTool log, you are not in the `unreal-engine-css` group yet, or you have

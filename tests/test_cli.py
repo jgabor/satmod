@@ -223,6 +223,17 @@ class RunTests(unittest.TestCase):
         self.file.write_text('false\nexport SHOULD_NOT_RUN=yes\n')
         self.assertEqual(self.invoke('run', 'true').returncode, 1)
 
+    def test_run_does_not_pass_wwise_credentials(self):
+        self.file.write_text('export TEST_SOURCED=yes\n')
+        self.env.update(WWISE_EMAIL='private-email', WWISE_PASSWORD='private-password')
+        result = self.invoke('run', 'python3', '-c',
+                             'import os,json; print(json.dumps(dict(os.environ)))')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        env = json.loads(result.stdout)
+        self.assertEqual(env['TEST_SOURCED'], 'yes')
+        self.assertNotIn('WWISE_EMAIL', env)
+        self.assertNotIn('WWISE_PASSWORD', env)
+
     def test_signal_is_preserved(self):
         self.file.write_text('export WINEARCH=win64\n')
         result = self.invoke('run', 'python3', '-c', 'import os,signal; os.kill(os.getpid(), signal.SIGTERM)')
@@ -357,7 +368,8 @@ class ModTests(unittest.TestCase):
     def test_build_argv_environment_stdin_logs_and_json(self):
         startup = self.home / 'startup.sh'
         startup.write_text('export WINEPREFIX=/wrong; export STARTUP_RAN=yes\n')
-        with patch.dict(os.environ, {'BASH_ENV': str(startup), 'ENV': str(startup)}):
+        with patch.dict(os.environ, {'BASH_ENV': str(startup), 'ENV': str(startup),
+                                     'WWISE_EMAIL': 'private-email', 'WWISE_PASSWORD': 'private-password'}):
             result = self.build()
         self.assertEqual(result.returncode, 0, result.stderr)
         summary = json.loads(result.stdout)
@@ -375,8 +387,11 @@ class ModTests(unittest.TestCase):
         self.assertEqual(record['stdin'], '')
         self.assertEqual(record['env']['WINEPREFIX'], '/managed prefix')
         self.assertEqual(record['env']['UE_WINE_MSVC'], '/managed tools')
-        for key in ('BASH_ENV', 'ENV', 'STARTUP_RAN'):
+        for key in ('BASH_ENV', 'ENV', 'STARTUP_RAN', 'WWISE_EMAIL', 'WWISE_PASSWORD'):
             self.assertNotIn(key, record['env'])
+        editor = json.loads((self.project.parent / 'editor.json').read_text())
+        for key in ('WWISE_EMAIL', 'WWISE_PASSWORD'):
+            self.assertNotIn(key, editor['env'])
         self.assertIn('fake UAT stdout', result.stderr)
         self.assertIn('fake UAT stderr', result.stderr)
         self.assertEqual(len(result.stdout.splitlines()), 1)
@@ -594,3 +609,311 @@ class ModTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)['mod'], 'Existing-Mod')
         with patch.object(cli, 'RUN_UAT', self.home / 'custom.sh'):
             self.assertEqual(cli.uat_arguments(self.project, 'Example')[0], str(self.home / 'custom.sh'))
+
+    def test_new_directory_mode_follows_umask(self):
+        for mask in (0o022, 0o027):
+            previous = os.umask(mask)
+            try:
+                result = self.invoke('new', f'Mode{mask}', '--json')
+            finally:
+                os.umask(previous)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            created = Path(json.loads(result.stdout)['path'])
+            self.assertEqual(created.stat().st_mode & 0o777, 0o777 & ~mask)
+
+    def test_cpp_identifier_and_project_module_collision(self):
+        for ref in ('9Invalid', 'FactoryGame', 'factorygame'):
+            result = self.invoke('new', ref, '--cpp')
+            self.assertEqual(result.returncode, 2 if ref == '9Invalid' else 1)
+            self.assertIn('C++ identifier' if ref == '9Invalid' else 'already exists in Source', result.stderr)
+            self.assertNotIn('Traceback', result.stderr)
+            self.assertFalse((self.project.parent / 'Mods' / ref).exists())
+        module = self.project.parent / 'Source/Nested/ActualModule.Build.cs'
+        module.parent.mkdir()
+        module.write_text('class ActualModule : ModuleRules {}')
+        result = self.invoke('new', 'ActualModule', '--cpp')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('already exists in Source', result.stderr)
+        for ref in ('9Blueprint', 'FactoryGame'):
+            result = self.invoke('new', ref)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class ProjectInitTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.addCleanup(patch.stopall)
+        self.home = Path(self.temp.name)
+        self.project = self.home / "project with 'quotes'"
+        self.ini = (b'\xef\xbb\xbf[Other]\r\nAudioRouting=Custom\r\n'
+                    b'[/Script/AkAudio.AkSettings]\r\n'
+                    b'WwiseProjectPath=(FilePath="SatisfactoryModLoader_WwiseProject/SatisfactoryModLoader_WwiseProject.wproj")\r\n'
+                    b'RootOutputPath=(Path="../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks")\r\n'
+                    b'AudioRouting=Custom\r\n[After]\r\nAudioRouting=Custom\r\n')
+        patch.dict(os.environ, {'HOME': str(self.home), 'XDG_CACHE_HOME': str(self.home / 'cache'),
+            'XDG_CONFIG_HOME': str(self.home / 'config'), 'WWISE_EMAIL': 'secret@example.com',
+            'WWISE_PASSWORD': 'secret-password', 'BASH_ENV': '/must-not-be-sourced',
+            'ENV': '/must-not-be-sourced', 'FIXTURE_HOME': str(self.home)}).start()
+        self.record = self.home / 'calls.jsonl'
+        (self.home / 'ini').write_bytes(self.ini)
+        script = '''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+home=Path(os.environ['FIXTURE_HOME'])
+name=Path(sys.argv[0]).name
+if name!='winepath': print('child progress')
+args=sys.argv[1:]
+with (home/'calls.jsonl').open('a') as f:
+ f.write(json.dumps({'name':name,'argv':args,'env':dict(os.environ),'stdin':os.read(0,1).decode()})+'\\n')
+def touch(p):
+ p.parent.mkdir(parents=True,exist_ok=True); p.write_text('{}')
+if name=='git':
+ p=Path(args[-1]); touch(p/'FactoryGame.uproject'); touch(p/'Config/DefaultGame.ini')
+ (p/'Config/DefaultGame.ini').write_bytes((home/'ini').read_bytes())
+elif name=='wwise-cli':
+ if os.environ.get('FAKE_WWISE_FAIL'): sys.exit(3)
+ if args[0]=='download':
+  p=Path(os.environ['XDG_CACHE_HOME'])/'wwise-cli/wwise/2023.1.14.8770'
+  for platform in ('x64_vc160','x64_vc170','Linux_x64'): (p/'SDK'/platform).mkdir(parents=True,exist_ok=True)
+  touch(p/'Authoring/x64/Release/bin/WwiseConsole.exe'); touch(p/'info.json')
+ else:
+  p=Path(args[-1]).parent; touch(p/'Plugins/Wwise/Wwise.uplugin')
+  (p/'Plugins/Wwise/Wwise.uplugin').write_text('{"VersionName":"2023.1.14.8770.3555"}')
+  (p/'Plugins/WwiseNiagara').mkdir(parents=True,exist_ok=True)
+  for platform in ('x64_vc160','x64_vc170','Linux_x64'): touch(p/'Plugins/Wwise/ThirdParty'/platform/'library.a')
+elif name=='winepath': print(args[-1])
+elif name=='wine':
+ p=Path(args[-1])
+ if args[1]=='create-new-project': touch(p)
+ else:
+  for name in ('ProjectInfo.xml','Windows/Init.bnk','Windows/Init.txt','Windows/SoundbanksInfo.xml','Windows/PluginInfo.xml','Windows/PlatformInfo.xml'):
+   if not os.environ.get('FAKE_BANKS_MISSING') or name!='Windows/PluginInfo.xml': touch(p.parent/'GeneratedSoundBanks'/name)
+'''
+        for name, constant in [('git', 'GIT'), ('wine', 'WINE'), ('winepath', 'WINEPATH')]:
+            path = self.home / name
+            path.write_text(script); path.chmod(0o755)
+            patch.object(cli, constant, str(path)).start()
+        self.binary = script.encode()
+        import hashlib
+        patch.object(cli, 'WWISE_CLI_SIZE', len(self.binary)).start()
+        patch.object(cli, 'WWISE_CLI_SHA256', hashlib.sha256(self.binary).hexdigest()).start()
+        self.http = patch.object(cli.urllib.request, 'urlopen', side_effect=lambda *a, **kw: io.BytesIO(self.binary)).start()
+        file = cli.environment_file()
+        file.parent.mkdir(parents=True)
+        file.write_text("export WINEPREFIX='/managed prefix'\nexport WINEDEBUG=wrong\n")
+
+    def invoke(self, *extra, json_output=True, interactive=False):
+        output = io.StringIO()
+        with tempfile.TemporaryFile(mode='w+') as errors:
+            argv = ['satisfactory-modding', 'project', 'init', str(self.project), *extra]
+            if json_output: argv.append('--json')
+            with patch.object(cli.sys, 'argv', argv), patch.object(cli.sys.stdin, 'isatty', return_value=interactive), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                code = cli.main()
+            errors.seek(0)
+            return code, output.getvalue(), errors.read()
+
+    def calls(self):
+        return [json.loads(line) for line in self.record.read_text().splitlines()] if self.record.exists() else []
+
+    def test_fresh_and_rerun_all_skipped(self):
+        code, output, error = self.invoke()
+        self.assertEqual(code, 0, error)
+        result = json.loads(output)
+        self.assertEqual(result['status'], 'complete')
+        self.assertEqual([s['status'] for s in result['steps']], ['done'] * 7)
+        calls = self.calls()
+        self.assertEqual([c['name'] for c in calls], ['git', 'wwise-cli', 'wwise-cli', 'winepath', 'wine', 'wine'])
+        self.assertEqual(calls[0]['argv'], ['clone', 'https://github.com/satisfactorymodding/SatisfactoryModLoader.git', str(self.project)])
+        self.assertEqual(calls[1]['argv'], ['download', '--sdk-version', cli.WWISE_SDK_VERSION,
+            '--filter', 'Packages=SDK', '--filter', 'DeploymentPlatforms=Windows_vc160',
+            '--filter', 'DeploymentPlatforms=Windows_vc170', '--filter', 'DeploymentPlatforms=Linux',
+            '--filter', 'DeploymentPlatforms=', '--filter', 'Packages=Authoring'])
+        self.assertEqual(calls[2]['argv'], ['integrate-ue', '--integration-version', cli.WWISE_INTEGRATION_VERSION,
+                                         '--project', str(self.project / 'FactoryGame.uproject')])
+        for call in calls:
+            self.assertEqual(call['stdin'], '')
+            self.assertNotIn('secret', json.dumps(call['argv']))
+        for call in calls:
+            for key in ('WWISE_EMAIL', 'WWISE_PASSWORD'):
+                if call['name'] == 'wwise-cli':
+                    self.assertEqual(call['env'][key], os.environ[key])
+                else:
+                    self.assertNotIn(key, call['env'])
+        for call in calls[3:]:
+            self.assertEqual(call['env']['WINEPREFIX'], '/managed prefix')
+            self.assertEqual(call['env']['WINEDEBUG'], '-all')
+            self.assertEqual(call['env']['WINEDLLOVERRIDES'], 'mscoree,mshtml=')
+            self.assertNotIn('BASH_ENV', call['env']); self.assertNotIn('ENV', call['env'])
+        self.assertNotIn('secret', output + error)
+        self.assertIn('child progress', error)
+        self.assertNotIn('child progress', output)
+        changed = self.ini.replace(b'AudioRouting=Custom\r\n[After]', b'AudioRouting=Separate\r\n[After]')
+        self.assertEqual((self.project / 'Config/DefaultGame.ini').read_bytes(), changed)
+        code, output, error = self.invoke(json_output=False)
+        self.assertEqual(code, 0, error)
+        self.assertEqual(output.count(': skipped'), 7)
+        self.assertIn('Unreal Project Model Mods Fix', output)
+        self.assertIn('satisfactory-modding run rider', output)
+        self.assertEqual(self.calls(), calls)
+        self.assertEqual(self.http.call_count, 1)
+        with patch.dict(os.environ, {'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''}):
+            code, output, error = self.invoke()
+        self.assertEqual(code, 0, error)
+        self.assertEqual([s['status'] for s in json.loads(output)['steps']], ['skipped'] * 7)
+
+    def test_partial_resume_and_explicit_cli(self):
+        self.assertEqual(self.invoke()[0], 0)
+        (self.project / 'Plugins/Wwise/Wwise.uplugin').write_text('{"VersionName":"old"}')
+        banks = self.project / cli.WWISE_PROJECT_NAME / 'GeneratedSoundBanks'
+        (banks / 'Windows/Init.bnk').unlink()
+        path = self.home / 'wwise-cli'; path.write_bytes(self.binary); path.chmod(0o755)
+        code, output, error = self.invoke('--wwise-cli', str(path))
+        self.assertEqual(code, 0, error)
+        self.assertEqual([s['status'] for s in json.loads(output)['steps']],
+                         ['skipped', 'skipped', 'skipped', 'done', 'skipped', 'done', 'skipped'])
+        self.assertEqual([c['name'] for c in self.calls()[6:]], ['wwise-cli', 'winepath', 'wine'])
+        self.assertEqual(self.http.call_count, 1)
+
+    def test_checksum_failure_cleans_temporary_download(self):
+        with patch.object(cli, 'WWISE_CLI_SHA256', '0' * 64):
+            code, output, error = self.invoke()
+        self.assertEqual(code, 1); self.assertEqual(output, '')
+        self.assertIn('SHA-256 mismatch', error)
+        self.assertEqual(list((cli.cache_home() / 'satisfactory-modding/wwise-cli/v0.2.4').iterdir()), [])
+        self.assertEqual([c['name'] for c in self.calls()], ['git'])
+
+    def test_network_error_is_clean(self):
+        import urllib.error
+        self.http.side_effect = urllib.error.URLError('offline')
+        code, output, error = self.invoke()
+        self.assertEqual(code, 1); self.assertIn('Cannot download wwise-cli', error)
+        self.assertNotIn('Traceback', error)
+
+    def test_missing_credentials_non_tty(self):
+        for variable in ('WWISE_EMAIL', 'WWISE_PASSWORD'):
+            with patch.dict(os.environ, {variable: ''}):
+                code, output, error = self.invoke()
+            self.assertEqual(code, 1); self.assertEqual(output, '')
+            self.assertIn('WWISE_EMAIL and WWISE_PASSWORD', error)
+            self.assertNotIn('Traceback', error)
+        self.assertEqual([c['name'] for c in self.calls()], ['git'])
+
+    def test_wrong_root_path_and_missing_section_key(self):
+        self.assertEqual(self.invoke()[0], 0)
+        path = self.project / 'Config/DefaultGame.ini'
+        for content, message in [(self.ini.replace(b'../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks', b'wrong'), 'RootOutputPath'),
+                                 (self.ini.replace(b'[/Script/AkAudio.AkSettings]', b'[Wrong]'), 'Missing AkSettings'),
+                                 (self.ini.replace(b'AudioRouting=Custom', b'Other=Custom'), 'AudioRouting'),
+                                 (self.ini.replace(b'FilePath="SatisfactoryModLoader', b'FilePath="Wrong'), 'WwiseProjectPath')]:
+            path.write_bytes(content)
+            code, output, error = self.invoke()
+            self.assertEqual(code, 1); self.assertIn(message, error)
+            self.assertEqual(path.read_bytes(), content)
+        self.assertEqual(len(self.calls()), 6)
+
+    def test_existing_non_project_rejected(self):
+        self.project.mkdir()
+        code, output, error = self.invoke()
+        self.assertEqual(code, 1); self.assertIn('not a Starter Project', error)
+        self.assertEqual(self.calls(), []); self.http.assert_not_called()
+
+    def test_missing_generated_file_fails_and_child_failure_is_clean(self):
+        with patch.dict(os.environ, {'FAKE_WWISE_FAIL': '1'}):
+            code, output, error = self.invoke()
+        self.assertEqual(code, 1); self.assertIn('wwise-cli download failed', error)
+        self.assertNotIn('secret', error)
+        with patch.dict(os.environ, {'FAKE_BANKS_MISSING': '1'}):
+            code, output, error = self.invoke()
+        self.assertEqual(code, 1); self.assertIn('all expected soundbank files', error)
+
+    def test_tty_authentication_children_inherit_streams(self):
+        # Inspect the subprocess contract without using a real terminal or credentials.
+        self.assertEqual(self.invoke()[0], 0)
+        (cli.wwise_sdk() / 'info.json').unlink()
+        (self.project / 'Plugins/Wwise/Wwise.uplugin').unlink()
+        original = cli.subprocess.run
+        seen = []
+        def execute(argv, **kwargs):
+            if Path(argv[0]).name == 'wwise-cli':
+                seen.append(kwargs.copy())
+                kwargs['stdin'] = subprocess.DEVNULL
+            return original(argv, **kwargs)
+        with patch.dict(os.environ, {'WWISE_PASSWORD': ''}), patch.object(cli.subprocess, 'run', side_effect=execute):
+            code, output, error = self.invoke(interactive=True)
+        self.assertEqual(code, 0, error)
+        self.assertEqual(json.loads(output)['status'], 'complete')
+        self.assertNotIn('child progress', output)
+        self.assertIn('child progress', error)
+        self.assertEqual(len(seen), 2)
+        for kwargs in seen:
+            self.assertIsNone(kwargs['stdin'])
+            self.assertIs(kwargs['stdout'], kwargs['stderr'])
+
+    def test_pins_match_manifest_and_bad_args(self):
+        manifest = json.loads((RECIPE.parent.parent / 'upstream-inputs.json').read_text())['wwise']
+        # These constants are patched for fixture downloads; compare a fresh module.
+        import runpy
+        constants = runpy.run_path(str(RECIPE / 'satisfactory-modding'))
+        for key, constant in [('version', 'WWISE_CLI_VERSION'), ('url', 'WWISE_CLI_URL'),
+                              ('bytes', 'WWISE_CLI_SIZE'), ('sha256', 'WWISE_CLI_SHA256'),
+                              ('sdk_version', 'WWISE_SDK_VERSION'), ('integration_version', 'WWISE_INTEGRATION_VERSION')]:
+            self.assertEqual(manifest[key], constants[constant])
+        with patch.object(cli.sys, 'argv', ['satisfactory-modding', 'project', 'init']), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                cli.main()
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_bom_on_aksettings_header(self):
+        self.project.mkdir()
+        (self.project / 'Config').mkdir()
+        path = self.project / 'Config/DefaultGame.ini'
+        content = self.ini.replace(b'[Other]\r\nAudioRouting=Custom\r\n', b'')
+        path.write_bytes(content)
+        self.assertEqual(cli.audio_routing(self.project, write=True)[0], 'done')
+        self.assertEqual(path.read_bytes(), content.replace(b'AudioRouting=Custom\r\n[After]', b'AudioRouting=Separate\r\n[After]'))
+
+    def test_atomic_audio_routing_preserves_mode_and_cleans_failed_writes(self):
+        self.project.mkdir()
+        (self.project / 'Config').mkdir()
+        path = self.project / 'Config/DefaultGame.ini'
+        path.write_bytes(self.ini)
+        path.chmod(0o640)
+        for operation in ('fchmod', 'replace'):
+            with patch.object(cli.os, operation, side_effect=OSError('injected write failure')):
+                with self.assertRaisesRegex(OSError, 'injected write failure'):
+                    cli.audio_routing(self.project, write=True)
+            self.assertEqual(path.read_bytes(), self.ini)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+        original_inode = path.stat().st_ino
+        cli.audio_routing(self.project, write=True)
+        self.assertNotEqual(path.stat().st_ino, original_inode)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(path.read_bytes(), self.ini.replace(b'AudioRouting=Custom\r\n[After]', b'AudioRouting=Separate\r\n[After]'))
+        self.assertEqual(list(path.parent.iterdir()), [path])
+
+    def test_missing_sdk_platform_and_empty_integration_platform_resume(self):
+        import shutil
+        self.assertEqual(self.invoke()[0], 0)
+        for platform in cli.WWISE_PLATFORMS:
+            shutil.rmtree(cli.wwise_sdk() / 'SDK' / platform)
+            self.assertFalse(cli.sdk_ready())
+            code, output, error = self.invoke()
+            self.assertEqual(code, 0, error)
+            statuses = {step['id']: step['status'] for step in json.loads(output)['steps']}
+            self.assertEqual(statuses['wwise-download'], 'done')
+            self.assertEqual(statuses['wwise-integrate'], 'skipped')
+            self.assertTrue(cli.sdk_ready())
+            folder = self.project / 'Plugins/Wwise/ThirdParty' / platform
+            for file in folder.iterdir(): file.unlink()
+            self.assertFalse(cli.integration_ready(self.project))
+            code, output, error = self.invoke()
+            self.assertEqual(code, 0, error)
+            statuses = {step['id']: step['status'] for step in json.loads(output)['steps']}
+            self.assertEqual(statuses['wwise-download'], 'skipped')
+            self.assertEqual(statuses['wwise-integrate'], 'done')
+            self.assertTrue(cli.integration_ready(self.project))
+            shutil.rmtree(folder)
+            self.assertFalse(cli.integration_ready(self.project))
+            self.assertEqual(self.invoke()[0], 0)

@@ -200,6 +200,7 @@ print(json.dumps(data[endpoint]))
         )
         manifest = json.loads((self.root / "upstream-inputs.json").read_text())
         self.assertEqual(manifest["msvc_wine"], self.pins["msvc_wine"])
+        self.assertEqual(manifest["wwise"], self.pins["wwise"])
         self.assertEqual(manifest["guide"], self.pins["guide"])
         self.assertEqual(manifest["engine"]["source_commit"], self.commit)
         self.assertEqual(

@@ -13,7 +13,11 @@ import shlex
 import shutil
 import subprocess
 import sys
+import stat
 import tempfile
+import hashlib
+import urllib.request
+import urllib.error
 
 PIN = "61b7cbc8cb9413fec8f0016ef433a90e06c37f54"
 SOURCE = Path(__file__).resolve().parent / "msvc-wine"
@@ -27,6 +31,20 @@ SELECTION = {"msvc-version": "17.8", "sdk-version": "10.0.22621",
 MARKER = ".satisfactory-modding.json"
 MSVCENV_BEGIN = "# BEGIN satisfactory-modding-setup"
 MSVCENV_END = "# END satisfactory-modding-setup"
+GIT = "git"
+WINE = "wine"
+WINEPATH = "winepath"
+WWISE_CLI_VERSION = "v0.2.4"
+WWISE_CLI_URL = "https://github.com/mircearoata/wwise-cli/releases/download/v0.2.4/wwise-cli_linux_amd64"
+WWISE_CLI_SIZE = 9060352
+WWISE_CLI_SHA256 = "23ff2858e275ed33c02fad7ab96b0bab12c8a0c2015a90c6df820a55dca6ea9f"
+WWISE_SDK_VERSION = "2023.1.14.8770"
+WWISE_INTEGRATION_VERSION = "2023.1.14.3555"
+WWISE_PLUGIN_VERSION = "2023.1.14.8770.3555"
+WWISE_PROJECT_NAME = "SatisfactoryModLoader_WwiseProject"
+WWISE_PLATFORMS = ("x64_vc160", "x64_vc170", "Linux_x64")
+SOUNDBANK_FILES = ("ProjectInfo.xml", "Windows/Init.bnk", "Windows/Init.txt",
+                   "Windows/SoundbanksInfo.xml", "Windows/PluginInfo.xml", "Windows/PlatformInfo.xml")
 
 
 class SetupError(Exception):
@@ -55,8 +73,14 @@ def user_file(path):
             f"Not a writable user-owned file: {path}")
 
 
+def child_environment(env=None):
+    env = dict(os.environ if env is None else env)
+    env.pop("WWISE_EMAIL", None)
+    env.pop("WWISE_PASSWORD", None)
+    return env
+
 def run(argv, env, cwd=None, capture=False):
-    result = subprocess.run([str(a) for a in argv], env=env, cwd=cwd,
+    result = subprocess.run([str(a) for a in argv], env=child_environment(env), cwd=cwd,
                             stdin=subprocess.DEVNULL, text=True,
                             stdout=subprocess.PIPE if capture else sys.stderr,
                             stderr=sys.stderr)
@@ -329,8 +353,8 @@ def launch(command):
         return 2
     file = environment_file()
     require(file.is_file(), f"Missing {file}; run satisfactory-modding setup first")
-    os.execvp("bash", ["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
-                       "satisfactory-modding run", str(file), *command])
+    os.execvpe("bash", ["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
+                        "satisfactory-modding run", str(file), *command], child_environment())
 
 def project_file(path=None):
     if path:
@@ -470,6 +494,192 @@ def uat_arguments(project, ref, game=None):
     return argv
 
 
+def managed_command(command, cwd, capture=False, name="Command", extra_env=None):
+    file = environment_file()
+    require(file.is_file(), f"Missing {file}; run satisfactory-modding setup first")
+    env = child_environment()
+    env.pop("BASH_ENV", None)
+    env.pop("ENV", None)
+    # Apply Wine settings after sourcing so the managed file cannot override them.
+    command = [str(a) for a in command]
+    if extra_env:
+        command = ["env", *[f"{key}={value}" for key, value in extra_env.items()], *command]
+    result = subprocess.run(["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
+                             "satisfactory-modding mod build", str(file), *command],
+                            env=env, cwd=cwd, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE if capture else sys.stderr,
+                            stderr=sys.stderr, text=capture)
+    require(result.returncode == 0, f"{name} failed (exit code {result.returncode})")
+    return result.stdout if capture else None
+
+
+def cache_home():
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+
+
+def wwise_sdk():
+    return cache_home() / "wwise-cli/wwise" / WWISE_SDK_VERSION
+
+
+def wwise_console():
+    return wwise_sdk() / "Authoring/x64/Release/bin/WwiseConsole.exe"
+
+
+def sdk_ready():
+    return (all((wwise_sdk() / "SDK" / platform).is_dir() for platform in WWISE_PLATFORMS)
+            and wwise_console().is_file()
+            and (wwise_sdk() / "info.json").is_file())
+
+
+def integration_ready(project):
+    plugin = project / "Plugins/Wwise/Wwise.uplugin"
+    try:
+        data = json.loads(plugin.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return False
+    return (isinstance(data, dict) and data.get("VersionName") == WWISE_PLUGIN_VERSION
+            and (project / "Plugins/WwiseNiagara").is_dir()
+            and all(path.is_dir() and any(path.iterdir())
+                    for path in (project / "Plugins/Wwise/ThirdParty" / platform
+                                 for platform in WWISE_PLATFORMS)))
+
+
+def verified_wwise_cli(path):
+    if not path.is_file() or path.stat().st_size != WWISE_CLI_SIZE:
+        return False
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest() == WWISE_CLI_SHA256
+
+
+def obtain_wwise_cli(explicit=None):
+    if explicit:
+        path = Path(explicit).expanduser().resolve()
+        require(path.is_file() and os.access(path, os.X_OK), f"Not an executable wwise-cli: {path}")
+        return path, "skipped", "using supplied executable"
+    path = cache_home() / "satisfactory-modding/wwise-cli" / WWISE_CLI_VERSION / "wwise-cli"
+    if verified_wwise_cli(path):
+        path.chmod(0o755)
+        return path, "skipped", "verified cached executable"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".download-", delete=False) as output:
+            temporary = Path(output.name)
+            try:
+                with urllib.request.urlopen(WWISE_CLI_URL, timeout=60) as response:
+                    shutil.copyfileobj(response, output)
+            except (urllib.error.URLError, OSError) as error:
+                raise SetupError(f"Cannot download wwise-cli: {error}") from error
+        require(verified_wwise_cli(temporary), "wwise-cli download size or SHA-256 mismatch")
+        temporary.chmod(0o755)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return path, "done", f"downloaded {WWISE_CLI_VERSION} and verified SHA-256"
+
+
+def audio_routing(project, write=False):
+    path = project / "Config/DefaultGame.ini"
+    original = path.read_bytes()
+    # Match bytes so BOM, newline style, and unrelated settings remain untouched.
+    section = re.search(rb"(?m)^(?:\xef\xbb\xbf)?\[/Script/AkAudio\.AkSettings\][^\S\r\n]*\r?\n(.*?)(?=^\[|\Z)",
+                        original, re.DOTALL)
+    require(section is not None, f"Missing AkSettings section in {path}")
+    settings = section.group(1)
+    expected = {
+        b"WwiseProjectPath": b'(FilePath="SatisfactoryModLoader_WwiseProject/SatisfactoryModLoader_WwiseProject.wproj")',
+        b"RootOutputPath": b'(Path="../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks")',
+    }
+    for key, value in expected.items():
+        matches = list(re.finditer(rb"(?m)^" + key + rb"=([^\r\n]*)", settings))
+        require(len(matches) == 1 and matches[0].group(1) == value,
+                f"Expected {key.decode()}={value.decode()} in AkSettings in {path}")
+    matches = list(re.finditer(rb"(?m)^AudioRouting=([^\r\n]*)", settings))
+    require(len(matches) == 1, f"Missing or duplicate AudioRouting key in AkSettings in {path}")
+    match = matches[0]
+    if match.group(1) == b"Separate":
+        return "skipped", "AudioRouting already Separate"
+    if write:
+        begin = section.start(1) + match.start(1)
+        end = section.start(1) + match.end(1)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".DefaultGame.ini-",
+                                             delete=False) as output:
+                temporary = Path(output.name)
+                output.write(original[:begin] + b"Separate" + original[end:])
+                os.fchmod(output.fileno(), stat.S_IMODE(path.stat().st_mode))
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    return "done", "set AkSettings AudioRouting=Separate"
+
+
+def init_project(args):
+    project = Path(args.directory).expanduser().resolve()
+    steps = []
+    def record(id, status, detail):
+        steps.append({"id": id, "status": status, "detail": detail})
+    if project.exists():
+        require((project / "FactoryGame.uproject").is_file(), f"Existing directory is not a Starter Project: {project}")
+        record("clone", "skipped", "FactoryGame.uproject exists")
+    else:
+        run([GIT, "clone", "https://github.com/satisfactorymodding/SatisfactoryModLoader.git", project], dict(os.environ))
+        require((project / "FactoryGame.uproject").is_file(), f"Clone did not produce FactoryGame.uproject: {project}")
+        record("clone", "done", "cloned Starter Project")
+    # Check tracked settings before downloads or Wine work.
+    audio_routing(project)
+    executable, status, detail = obtain_wwise_cli(args.wwise_cli)
+    record("wwise-cli", status, detail)
+    download = not sdk_ready()
+    integrate = not integration_ready(project)
+    interactive = not (os.environ.get("WWISE_EMAIL") and os.environ.get("WWISE_PASSWORD"))
+    if download or integrate:
+        require(not interactive or sys.stdin.isatty(),
+                "Set both WWISE_EMAIL and WWISE_PASSWORD for noninteractive Wwise authentication")
+    def wwise(command):
+        # Only authentication children inherit the terminal; credentials stay in env.
+        result = subprocess.run([str(executable), *command], env=dict(os.environ),
+                                stdin=None if interactive else subprocess.DEVNULL,
+                                stdout=sys.stderr, stderr=sys.stderr)
+        require(result.returncode == 0, f"wwise-cli {command[0]} failed (exit code {result.returncode})")
+    if download:
+        wwise(["download", "--sdk-version", WWISE_SDK_VERSION,
+               "--filter", "Packages=SDK", "--filter", "DeploymentPlatforms=Windows_vc160",
+               "--filter", "DeploymentPlatforms=Windows_vc170", "--filter", "DeploymentPlatforms=Linux",
+               "--filter", "DeploymentPlatforms=", "--filter", "Packages=Authoring"])
+        require(sdk_ready(), "wwise-cli download did not produce all SDK platform folders, WwiseConsole.exe, and info.json")
+    record("wwise-download", "done" if download else "skipped", f"SDK {WWISE_SDK_VERSION}")
+    if integrate:
+        wwise(["integrate-ue", "--integration-version", WWISE_INTEGRATION_VERSION,
+               "--project", str(project / "FactoryGame.uproject")])
+        require(integration_ready(project), "Wwise integration missing expected VersionName, WwiseNiagara, or non-empty ThirdParty platform folders")
+    record("wwise-integrate", "done" if integrate else "skipped", f"integration {WWISE_PLUGIN_VERSION}")
+    wproj = project / WWISE_PROJECT_NAME / (WWISE_PROJECT_NAME + ".wproj")
+    banks = wproj.parent / "GeneratedSoundBanks"
+    create = not wproj.is_file()
+    generate = not (banks / "Windows/Init.bnk").is_file()
+    if create or generate:
+        require(wwise_console().is_file(), f"Missing WwiseConsole.exe: {wwise_console()}")
+        wine_env = {"WINEDEBUG": "-all", "WINEDLLOVERRIDES": "mscoree,mshtml="}
+        windows_path = managed_command([WINEPATH, "-w", wproj], project, capture=True,
+                                       extra_env=wine_env).strip()
+        require(bool(windows_path) and "\n" not in windows_path, "winepath did not return one Windows path")
+        if create:
+            managed_command([WINE, wwise_console(), "create-new-project", windows_path], project, extra_env=wine_env)
+            require(wproj.is_file(), "WwiseConsole did not create the Wwise project")
+        if generate:
+            managed_command([WINE, wwise_console(), "generate-soundbank", windows_path], project, extra_env=wine_env)
+            require(all((banks / file).is_file() for file in SOUNDBANK_FILES), "WwiseConsole did not produce all expected soundbank files")
+    record("wwise-project", "done" if create else "skipped", str(wproj))
+    record("soundbanks", "done" if generate else "skipped", str(banks))
+    status, detail = audio_routing(project, write=True)
+    record("audio-routing", status, detail)
+    return {"status": "complete", "project": str(project), "steps": steps}
+
+
 def build_mod(args):
     project = project_file(args.project)
     plugin = find_mod(project, args.ref)
@@ -483,16 +693,9 @@ def build_mod(args):
     argv = uat_arguments(project, plugin.stem, game)
     for command in (editor, argv):
         require(Path(command[0]).is_file(), f"Missing {command[0]}; install unreal-engine-css-bin")
-    env = dict(os.environ)
-    env.pop("BASH_ENV", None)
-    env.pop("ENV", None)
-    # Cooking loads the mod in the Linux editor, so its editor module must be built first.
+    # Cooking loads the mod in the Linux editor, so build its module first.
     for name, command in (("Editor build", editor), ("RunUAT", argv)):
-        result = subprocess.run(["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
-                                 "satisfactory-modding mod build", str(file), *command],
-                                env=env, cwd=project.parent, stdin=subprocess.DEVNULL,
-                                stdout=sys.stderr, stderr=sys.stderr)
-        require(result.returncode == 0, f"{name} failed (exit code {result.returncode})")
+        managed_command(command, project.parent, name=name)
     archive = project.parent / "Saved/ArchivedPlugins" / plugin.stem / f"{plugin.stem}-Windows.zip"
     game_feature = any(plugin.is_relative_to(project.parent / root / "GameFeatures")
                        for root in ("Mods", "Plugins"))
@@ -509,6 +712,14 @@ def build_mod(args):
 def new_mod(args):
     project = project_file(args.project)
     ref = args.ref
+    if args.cpp:
+        require(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", ref),
+                f"C++ mod name must be a C++ identifier (cannot start with a digit): {ref}")
+        modules = [path for path in (project.parent / "Source").rglob("*.Build.cs")
+                   if path.name[:-len(".Build.cs")].casefold() == ref.casefold()]
+        modules.extend(path for path in (project.parent / "Source").iterdir()
+                       if path.is_dir() and path.name.casefold() == ref.casefold() and path not in modules)
+        require(not modules, f"C++ module {ref} already exists in Source: " + ", ".join(map(str, modules)))
     # Check the whole project, including directories Unreal would not discover.
     collisions = [p for p in project.parent.rglob("*.uplugin") if p.stem.casefold() == ref.casefold()]
     collisions.extend(p for p in project_plugins(project)
@@ -553,6 +764,9 @@ def new_mod(args):
             shutil.copyfile(icon, staging / "Resources/Icon128.png")
         (staging / f"{ref}.uplugin").write_text(json.dumps(descriptor, indent=2) + "\n")
         require(not destination.exists() and not destination.is_symlink(), f"Mod directory already exists: {destination}")
+        mask = os.umask(0)
+        os.umask(mask)
+        staging.chmod(0o777 & ~mask)
         staging.rename(destination)
     finally:
         if staging.exists():
@@ -660,6 +874,12 @@ def main():
     run_parser.add_argument("command", nargs=argparse.REMAINDER, metavar="COMMAND")
     doctor_parser = commands.add_parser("doctor", help="check the installation without changing it")
     doctor_parser.add_argument("--json", action="store_true")
+    project_parser = commands.add_parser("project", help="initialize a Starter Project")
+    projects = project_parser.add_subparsers(dest="project_command", required=True)
+    init_parser = projects.add_parser("init", help="clone and configure the Starter Project and Wwise")
+    init_parser.add_argument("directory", metavar="DIR")
+    init_parser.add_argument("--wwise-cli", metavar="PATH")
+    init_parser.add_argument("--json", action="store_true")
     mod_parser = commands.add_parser("mod", help="create and build mods without the editor")
     mods = mod_parser.add_subparsers(dest="mod_command", required=True)
     build_parser = mods.add_parser("build", help="build and package a Windows client mod")
@@ -675,6 +895,8 @@ def main():
     new_parser.add_argument("--cpp", action="store_true", help="include C++ source; the editor or mod build compiles it")
     new_parser.add_argument("--game-feature", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.subcommand == "mod" and args.mod_command == "new" and args.cpp and args.ref[0].isdigit():
+        parser.error(f"C++ mod name must be a C++ identifier (cannot start with a digit): {args.ref}")
     if args.subcommand == "mod" and args.mod_command == "new" and args.game_feature:
         parser.error("Game-feature mods require a binary GameFeatureData asset created by the Unreal Editor; mod new creates library mods")
     if args.subcommand is None:
@@ -691,6 +913,17 @@ def main():
                 for check in result["checks"]:
                     print(f"{check['id']}: {check['status']}: {check['message']}")
             return 0 if result["status"] == "ok" else 1
+        if args.subcommand == "project":
+            result = init_project(args)
+            if args.json:
+                print(json.dumps(result, sort_keys=True))
+            else:
+                decisions = "; ".join(f"{s['id']}: {s['status']} ({s['detail']})" for s in result["steps"])
+                print(f"Project complete: {result['project']}; {decisions}; manual: install Rider plugin "
+                      '\"Unreal Project Model Mods Fix\"; open with satisfactory-modding run rider ' +
+                      shlex.quote(str(Path(result["project"]) / "FactoryGame.uproject")) +
+                      "; mod new and mod build are available")
+            return 0
         if args.subcommand == "mod":
             result = build_mod(args) if args.mod_command == "build" else new_mod(args)
             if args.json:
