@@ -97,7 +97,8 @@ engine files. Hooks never download tools, set up Wine, or change your account.
 
 This repository stops where the guide's
 [Project Setup](https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html)
-section begins. Every step from there on is manual and is not automated here yet.
+section begins. Project Setup remains manual. After it is complete, the CLI can
+create library mods and build mods without opening the editor.
 Follow the guide in this order. The notes below cover what the guide leaves out
 or what differs with these packages. The whole path, through a Rider build and
 the first editor start, has been tested with the packages.
@@ -149,6 +150,26 @@ The engine loads the MSVC environment itself through `~/.unrealrc`.
 If Rider shows **Project 'Engine' load failed** with a permission error in its
 UnrealBuildTool log, you are not in the `unreal-engine-css` group yet, or you have
 not logged in again since joining. Check with `id` and `satisfactory-modding doctor`.
+
+## Build mods from the command line
+
+After Project Setup, run from the Starter Project:
+
+```sh
+satisfactory-modding mod new MyMod --cpp
+satisfactory-modding mod build MyMod
+```
+
+`mod new` creates a library mod from Alpakit's templates; omit `--cpp` for
+Blueprint only. Game-feature creation still needs the editor. `mod build`
+builds and packages a Windows client mod and copies it into the Steam install,
+which it detects automatically. Use `--game DIR` to choose the game directory,
+or `--no-copy` to package only. Both commands accept `--project PATH` and
+`--json`. Archives land in `Saved/ArchivedPlugins/REF/REF-Windows.zip`.
+See the [CLI documentation](packages/satisfactory-modding-setup/README.md#create-a-library-mod)
+for options, outputs, and limits. Both commands were tested on a real Starter
+Project: `mod new --cpp` followed by `mod build` compiled, packaged, and copied a
+new mod into the game without opening the editor.
 
 ## Licenses and terms
 

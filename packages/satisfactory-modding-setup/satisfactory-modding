@@ -18,6 +18,8 @@ import tempfile
 PIN = "61b7cbc8cb9413fec8f0016ef433a90e06c37f54"
 SOURCE = Path(__file__).resolve().parent / "msvc-wine"
 ENGINE = Path("/opt/unreal-engine-css")
+RUN_UAT = None  # Override in tests; otherwise resolve relative to ENGINE.
+STEAM_ROOTS = None  # Override in tests; otherwise use the current home.
 TOOLS = ("python3", "bash", "wine", "wineserver", "msiextract", "git", "perl", "tar", "zstd",
          "dos2unix", "find", "sed", "awk", "xargs", "sha256sum", "patch")
 SELECTION = {"msvc-version": "17.8", "sdk-version": "10.0.22621",
@@ -330,6 +332,234 @@ def launch(command):
     os.execvp("bash", ["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
                        "satisfactory-modding run", str(file), *command])
 
+def project_file(path=None):
+    if path:
+        candidate = Path(path).expanduser().resolve()
+        if candidate.is_dir():
+            candidate /= "FactoryGame.uproject"
+        require(candidate.suffix == ".uproject" and candidate.is_file(),
+                f"Missing project: {candidate}; pass --project PATH")
+        return candidate
+    current = Path.cwd()
+    for directory in (current, *current.parents):
+        candidate = directory / "FactoryGame.uproject"
+        if candidate.is_file():
+            return candidate.resolve()
+    raise SetupError("No FactoryGame.uproject in the current directory or its parents; pass --project PATH")
+
+
+def mod_ref(value):
+    if not re.fullmatch(r"[A-Za-z0-9_]+", value):
+        raise argparse.ArgumentTypeError("REF must contain only letters, digits, and underscores")
+    if value.casefold() in {"game", "engine", "script", "memory", "temp", "config"}:
+        raise argparse.ArgumentTypeError(f"Reserved Unreal mount point name: {value}")
+    return value
+
+
+def plugin_roots(project):
+    roots = [project.parent / "Mods", project.parent / "Plugins"]
+    descriptor = json.loads(project.read_text())
+    require(isinstance(descriptor, dict), f"Invalid project descriptor: {project}")
+    additional = descriptor.get("AdditionalPluginDirectories", [])
+    require(isinstance(additional, list) and all(isinstance(p, str) for p in additional),
+            f"Invalid AdditionalPluginDirectories in {project}")
+    roots.extend((project.parent / path).resolve() for path in additional)
+    return roots
+
+
+def project_plugins(project):
+    # Unreal discovers plugins recursively, stopping below a descriptor directory.
+    plugins = []
+    for root in plugin_roots(project):
+        for directory, children, files in os.walk(root):
+            descriptors = [Path(directory) / f for f in files if f.endswith(".uplugin")]
+            if descriptors:
+                plugins.extend(descriptors)
+                children[:] = []
+    return sorted(set(plugins))
+
+
+def find_mod(project, ref):
+    matches = [p for p in project_plugins(project) if p.stem.casefold() == ref.casefold()]
+    require(matches, f"Mod {ref} not found; looked recursively in " +
+            ", ".join(str(p) for p in plugin_roots(project)))
+    require(len(matches) == 1, f"Ambiguous mod {ref}: " + ", ".join(map(str, matches)))
+    return matches[0]
+
+
+def read_vdf(path):
+    """Parse Steam's quoted key/value objects, comments and escaped quotes/backslashes."""
+    tokens = [t for t in re.findall(r'"(?:\\.|[^"\\])*"|//[^\n]*|[{}]|[^\s{}"]+',
+                                  path.read_text()) if not t.startswith('//')]
+    position = 0
+    def token_value(token):
+        if token.startswith('"'):
+            return re.sub(r'\\(["\\])', r'\1', token[1:-1])
+        return token
+    def object_value(nested=False):
+        nonlocal position
+        result = {}
+        while position < len(tokens):
+            key = tokens[position]
+            position += 1
+            if key == "}":
+                require(nested, f"Invalid Steam VDF: {path}")
+                return result
+            require(key != "{" and position < len(tokens), f"Invalid Steam VDF: {path}")
+            value = tokens[position]
+            position += 1
+            require(value != "}", f"Invalid Steam VDF: {path}")
+            result[token_value(key).lower()] = (object_value(True) if value == "{"
+                                                else token_value(value))
+        require(not nested, f"Invalid Steam VDF: {path}")
+        return result
+    return object_value()
+
+
+def steam_game():
+    home = Path.home()
+    roots = STEAM_ROOTS if STEAM_ROOTS is not None else [home / ".local/share/Steam", home / ".steam/steam"]
+    libraries = list(roots)
+    for root in roots:
+        try:
+            folders = read_vdf(root / "steamapps/libraryfolders.vdf").get("libraryfolders", {})
+            for key, value in folders.items():
+                if key.isdigit():
+                    path = value.get("path") if isinstance(value, dict) else value
+                    if path:
+                        libraries.append(Path(path))
+        except (OSError, SetupError, AttributeError, TypeError, ValueError):
+            continue
+    for library in dict.fromkeys(libraries):
+        try:
+            state = read_vdf(library / "steamapps/appmanifest_526870.acf")["appstate"]
+            install = state["installdir"]
+            if state.get("appid") != "526870" or not isinstance(install, str):
+                continue
+            # An installdir is a relative folder name under steamapps/common.
+            if Path(install).name != install or install in (".", ".."):
+                continue
+            game = library / "steamapps/common" / install
+            if game.is_dir():
+                return game.resolve()
+        except (OSError, SetupError, KeyError, TypeError, AttributeError):
+            continue
+    return None
+
+
+def editor_target(project):
+    """Return the project's single Editor target name, as Rider and the editor build it."""
+    names = [p.name.removesuffix(".Target.cs") for p in sorted((project.parent / "Source").glob("*.Target.cs"))
+             if re.search(r"Type\s*=\s*TargetType\.Editor\b", p.read_text(errors="replace"))]
+    require(len(names) == 1, f"Expected one Editor target in {project.parent / 'Source'}, found {names or 'none'}")
+    return names[0]
+
+
+def editor_build_arguments(project):
+    build = ENGINE / "Engine/Build/BatchFiles/Linux/Build.sh"
+    return [str(build), editor_target(project), "Linux", "Development", f"-Project={project}", "-WaitMutex"]
+
+
+def uat_arguments(project, ref, game=None):
+    wrapper = RUN_UAT if RUN_UAT is not None else ENGINE / "Engine/Build/BatchFiles/RunUAT.sh"
+    argv = [str(wrapper), f"-ScriptsForProject={project}", "PackagePlugin", f"-project={project}",
+            "-clientconfig=Shipping", "-serverconfig=Shipping", "-utf8output", f"-DLCName={ref}",
+            "-build", "-platform=Win64", "-nocompileeditor", "-installed"]
+    if game is not None:
+        argv.append(f"-CopyToGameDirectory_Windows={game}")
+    return argv
+
+
+def build_mod(args):
+    project = project_file(args.project)
+    plugin = find_mod(project, args.ref)
+    game = None if args.no_copy else (Path(args.game).expanduser().resolve() if args.game else steam_game())
+    require(args.no_copy or game is not None,
+            "Satisfactory Steam install not found; pass --game DIR or --no-copy")
+    require(game is None or game.is_dir(), f"Missing game directory: {game}")
+    file = environment_file()
+    require(file.is_file(), f"Missing {file}; run satisfactory-modding setup first")
+    editor = editor_build_arguments(project)
+    argv = uat_arguments(project, plugin.stem, game)
+    for command in (editor, argv):
+        require(Path(command[0]).is_file(), f"Missing {command[0]}; install unreal-engine-css-bin")
+    env = dict(os.environ)
+    env.pop("BASH_ENV", None)
+    env.pop("ENV", None)
+    # Cooking loads the mod in the Linux editor, so its editor module must be built first.
+    for name, command in (("Editor build", editor), ("RunUAT", argv)):
+        result = subprocess.run(["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
+                                 "satisfactory-modding mod build", str(file), *command],
+                                env=env, cwd=project.parent, stdin=subprocess.DEVNULL,
+                                stdout=sys.stderr, stderr=sys.stderr)
+        require(result.returncode == 0, f"{name} failed (exit code {result.returncode})")
+    archive = project.parent / "Saved/ArchivedPlugins" / plugin.stem / f"{plugin.stem}-Windows.zip"
+    game_feature = any(plugin.is_relative_to(project.parent / root / "GameFeatures")
+                       for root in ("Mods", "Plugins"))
+    copied = game / project.stem / "Mods" if game else None
+    if copied is not None:
+        if game_feature:
+            copied /= "GameFeatures"
+        copied /= plugin.stem
+    return {"status": "complete", "mod": plugin.stem, "project": str(project),
+            "outputs": [str(archive)] if archive.is_file() else [],
+            "game_mod": str(copied) if copied is not None and copied.is_dir() else None}
+
+
+def new_mod(args):
+    project = project_file(args.project)
+    ref = args.ref
+    # Check the whole project, including directories Unreal would not discover.
+    collisions = [p for p in project.parent.rglob("*.uplugin") if p.stem.casefold() == ref.casefold()]
+    collisions.extend(p for p in project_plugins(project)
+                      if p.stem.casefold() == ref.casefold() and p not in collisions)
+    require(not collisions, f"Plugin {ref} already exists: " + ", ".join(map(str, collisions)))
+    destination = project.parent / "Mods" / ref
+    require(not destination.exists() and not destination.is_symlink(), f"Mod directory already exists: {destination}")
+    alpakit = find_mod(project, "Alpakit").parent
+    template = alpakit / "Templates" / ("CPPAndBlueprintBlank" if args.cpp else "BlueprintBlank")
+    require(template.is_dir(), f"Missing Alpakit template: {template}")
+    sml = json.loads(find_mod(project, "SML").read_text())
+    game_version = (project.parent / "Source/FactoryGame/currentVersion.txt").read_text().strip()
+    require(game_version and isinstance(sml, dict) and isinstance(sml.get("VersionName"), str)
+            and sml["VersionName"], "Missing game version or SML VersionName")
+    descriptor = {"FileVersion": 3, "Version": 1, "VersionName": "1.0.0", "SemVersion": "1.0.0",
+                  "FriendlyName": ref, "Description": "", "Category": "Modding", "CreatedBy": "",
+                  "CreatedByURL": "", "DocsURL": "", "MarketplaceURL": "", "SupportURL": "",
+                  "CanContainContent": True, "IsBetaVersion": False, "IsExperimentalVersion": False,
+                  "Installed": False, "GameVersion": ">=" + game_version,
+                  "Plugins": [{"Name": "SML", "Enabled": True, "SemVersion": "^" + sml["VersionName"]}]}
+    if args.cpp:
+        descriptor["Modules"] = [{"Name": ref, "Type": "Runtime", "LoadingPhase": "Default"}]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{ref}-", dir=destination.parent))
+    try:
+        (staging / "Content").mkdir()
+        for source in sorted(template.rglob("*")):
+            target = staging / str(source.relative_to(template)).replace("PLUGIN_NAME", ref)
+            if source.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                data = source.read_bytes()
+                # Keep binary resources intact; no Unreal asset creation or fixup.
+                if b"\0" not in data:
+                    data = data.replace(b"PLUGIN_NAME", ref.encode()).replace(
+                        (ref + "_API").encode(), (ref.upper() + "_API").encode())
+                target.write_bytes(data)
+        icon = alpakit / "Resources/DefaultIcon128.png"
+        if icon.is_file() and not (staging / "Resources/Icon128.png").exists():
+            (staging / "Resources").mkdir(exist_ok=True)
+            shutil.copyfile(icon, staging / "Resources/Icon128.png")
+        (staging / f"{ref}.uplugin").write_text(json.dumps(descriptor, indent=2) + "\n")
+        require(not destination.exists() and not destination.is_symlink(), f"Mod directory already exists: {destination}")
+        staging.rename(destination)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    return {"status": "complete", "mod": ref, "project": str(project), "path": str(destination), "cpp": args.cpp}
+
+
 def doctor():
     home = Path.home()
     file = environment_file().resolve()
@@ -430,7 +660,23 @@ def main():
     run_parser.add_argument("command", nargs=argparse.REMAINDER, metavar="COMMAND")
     doctor_parser = commands.add_parser("doctor", help="check the installation without changing it")
     doctor_parser.add_argument("--json", action="store_true")
+    mod_parser = commands.add_parser("mod", help="create and build mods without the editor")
+    mods = mod_parser.add_subparsers(dest="mod_command", required=True)
+    build_parser = mods.add_parser("build", help="build and package a Windows client mod")
+    new_parser = mods.add_parser("new", help="create a library mod from Alpakit templates",
+                                description="Create a library mod. Game-feature mods require a binary GameFeatureData asset created by the Unreal Editor.")
+    for command in (build_parser, new_parser):
+        command.add_argument("ref", type=mod_ref if command is new_parser else str, metavar="REF")
+        command.add_argument("--project", help=".uproject file or directory; default: search current directory and parents")
+        command.add_argument("--json", action="store_true", help="print one JSON summary on success")
+    copying = build_parser.add_mutually_exclusive_group()
+    copying.add_argument("--game", help="game directory; default: detect Steam app 526870")
+    copying.add_argument("--no-copy", action="store_true", help="package without copying into the game")
+    new_parser.add_argument("--cpp", action="store_true", help="include C++ source; the editor or mod build compiles it")
+    new_parser.add_argument("--game-feature", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.subcommand == "mod" and args.mod_command == "new" and args.game_feature:
+        parser.error("Game-feature mods require a binary GameFeatureData asset created by the Unreal Editor; mod new creates library mods")
     if args.subcommand is None:
         parser.print_help()
         return 2
@@ -445,6 +691,17 @@ def main():
                 for check in result["checks"]:
                     print(f"{check['id']}: {check['status']}: {check['message']}")
             return 0 if result["status"] == "ok" else 1
+        if args.subcommand == "mod":
+            result = build_mod(args) if args.mod_command == "build" else new_mod(args)
+            if args.json:
+                print(json.dumps(result, sort_keys=True))
+            elif args.mod_command == "new":
+                print(f"Created {result['path']}" + ("; the editor or mod build compiles the C++ source" if args.cpp else ""))
+            else:
+                print(f"Built {result['mod']} from {result['project']}; outputs: " +
+                      (", ".join(result["outputs"]) or "none found") +
+                      (f"; copied to {result['game_mod']}" if result["game_mod"] else ""))
+            return 0
         result = setup(args)
     except (SetupError, OSError, ValueError, TypeError, KeyError, configparser.Error) as error:
         print(f"satisfactory-modding: {error}", file=sys.stderr)

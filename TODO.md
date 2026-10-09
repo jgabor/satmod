@@ -9,7 +9,8 @@ up to, but not including, **Project Setup**, with two Arch packages:
 - `unreal-engine-css-bin`: the prebuilt CSS engine under `/opt/unreal-engine-css`.
 - `satisfactory-modding-setup`: provides `satisfactory-modding setup` to install
   MSVC under Wine, register the engine, and write the build environment. The CLI
-  also provides `run` to start tools and `doctor` to check the installation.
+  also provides `run` to start tools, `doctor` to check the installation, and
+  `mod new` and `mod build` for library scaffolding and Windows client packaging.
 
 Rules that hold throughout:
 
@@ -28,6 +29,15 @@ Rules that hold throughout:
 ## Done
 
 Git history has the details.
+
+- **CLI mod commands (in progress, pkgrel 6 unreleased).** `mod new` scaffolds
+  Blueprint or C++ library mods from the project's Alpakit templates. `mod build`
+  packages Windows client mods and optionally copies them into the detected
+  Steam install. On 2026-10-09 `mod build LinuxTestMod` rebuilt the
+  editor-created mod headless, and `mod new CliTestMod --cpp` then `mod build
+  CliTestMod` compiled it for Linux and Win64, cooked, packaged, and copied it to
+  the game. The first attempt showed that cooking needs the mod's Linux editor
+  module, so `mod build` now builds the editor target first.
 
 - **First mod (2026-10-09).** With setup pkgrel 5, Alpakit packaged a C++ &
   Blueprint test mod for Windows. The Win64 compile ran through MSVC under Wine,
@@ -79,6 +89,8 @@ Git history has the details.
   release.
 - [ ] Run a fresh bootstrap for a user outside the group, and confirm it adds them
   and asks for a re-login.
+- [ ] Start the game with `CliTestMod` (made by `mod new` and `mod build`) and
+  confirm SML loads it. It is installed in the game's `Mods` folder.
 - [ ] Test package upgrade and removal, and confirm user data survives. Removal
   leaves files the build tools created under `/opt/unreal-engine-css`.
 - [ ] Decide whether to apply the guide's optional UnrealBuildTool patch
@@ -96,8 +108,6 @@ Git history has the details.
 
 ## Future
 
-- `satisfactory-modding mod build` will build and package a mod.
-- `satisfactory-modding mod new` will create a mod scaffold.
 - `satisfactory-modding project init` will automate Project Setup as described below.
 
 ### AUR publishing

@@ -1,12 +1,15 @@
 # satisfactory-modding-setup
 
-This package provides one CLI, `satisfactory-modding`, with three subcommands:
+This package provides one CLI, `satisfactory-modding`, with these commands:
 
 - `satisfactory-modding setup` installs the MSVC compiler and Windows SDK under
   Wine for your user, registers the engine, and writes the environment the engine
   needs to build mods. Run it yourself; package installation never runs it.
 - `satisfactory-modding run` runs any command, such as your IDE, with that
   environment.
+- `satisfactory-modding mod new` creates a library mod from Alpakit templates.
+- `satisfactory-modding mod build` builds and packages a Windows client mod,
+  then optionally copies it into the game.
 - `satisfactory-modding doctor` checks the installation without changing files,
   downloading anything, starting Wine, or running smoke tests.
 
@@ -17,7 +20,7 @@ toolchain.
 
 It covers the guide up to, but not including, **Project Setup**. Most people get it
 through [bootstrap](../../README.md). This page covers building it by hand and
-what setup does.
+what setup does and how to create and build mods after Project Setup.
 
 ## Build and install
 
@@ -159,6 +162,91 @@ toolchain, and the line ending in
 `# satisfactory-modding-setup` in `~/.unrealrc`. If you only delete the
 environment file, that line does nothing. Keep the engine registration in
 `Install.ini` unless you also remove the engine.
+
+## Create a library mod
+
+After completing Project Setup, run from the Starter Project or one of its
+subdirectories:
+
+```sh
+satisfactory-modding mod new MyMod
+satisfactory-modding mod new MyCppMod --cpp
+```
+
+`REF` is the permanent mod reference. Use only letters, digits, and underscores.
+Unreal mount point names (`Game`, `Engine`, `Script`, `Memory`, `Temp`, `Config`)
+and existing plugin names are reserved. The command refuses an existing mod
+directory or a plugin with the same name anywhere in the project.
+
+The default is Alpakit's **Blueprint Library (Advanced)** template,
+`Mods/Alpakit/Templates/BlueprintBlank`. `--cpp` selects **C++ & Blueprint
+Library (Advanced)**, `CPPAndBlueprintBlank`. Templates are read from your
+project's Alpakit plugin, including when it is under `Plugins` or a configured
+additional plugin directory. The command creates `Mods/REF`, replaces
+`PLUGIN_NAME` in paths and text, creates an empty `Content` directory, and writes
+`REF.uplugin`. The C++ module uses `Runtime` and `Default`, with uppercase API
+macros. The editor or `satisfactory-modding mod build REF` compiles its source.
+Creation uses a temporary sibling directory and a rename; failures remove the
+staging directory instead of leaving a partial mod.
+
+The descriptor follows the wizard defaults: version and semantic version
+`1.0.0`, category `Modding`, content enabled, and SML enabled with `^` followed
+by the project's SML `VersionName`. Its game constraint is `>=` followed by
+`Source/FactoryGame/currentVersion.txt`. The friendly name is `REF`. Description,
+author, author URL, and documentation/support/marketplace URLs have no supplied
+values, so they are empty; beta, experimental, and installed flags are false.
+The template icon, or Alpakit's default icon when available, is copied intact.
+The command does not change the project descriptor.
+
+Only library mods are supported. Game-feature mods require a binary
+`GameFeatureData` asset created by the Unreal Editor. This command does not
+create or fix up Unreal assets.
+
+## Build a mod
+
+```sh
+satisfactory-modding mod build MyMod
+satisfactory-modding mod build MyMod --no-copy
+satisfactory-modding mod build MyMod --project ~/git/SatisfactoryModLoader --game /path/to/Satisfactory
+```
+
+Both commands accept `--project PATH`, either a `.uproject` file or its directory.
+Without it, they search the current directory and its parents for
+`FactoryGame.uproject`. Build discovers plugins recursively in `Mods`, `Plugins`,
+and the project's `AdditionalPluginDirectories`, including game-feature mods.
+
+Build first compiles the project's Linux editor target (for the Starter Project,
+`FactoryEditor Linux Development`) with the engine's `Linux/Build.sh`, the same
+build Rider runs. Packaging cooks the mod in the Linux editor, which needs the
+mod's editor module, so a new C++ mod fails to cook without this step. When
+nothing changed, it finishes in seconds.
+
+Then build uses `/opt/unreal-engine-css/Engine/Build/BatchFiles/RunUAT.sh` and Alpakit's
+`PackagePlugin` command with `Shipping` client/server configuration, `Win64`,
+`-build`, `-nocompileeditor`, and `-installed`. Only the Windows client is built
+for now. It sources the managed environment file written by
+`satisfactory-modding setup`, with `BASH_ENV` and `ENV` removed before starting
+bash. Child stdin is `/dev/null`; environment diagnostics and UAT logs go to
+stderr.
+
+By default, build detects Steam app 526870 through `libraryfolders.vdf` and
+`appmanifest_526870.acf`, starting from `~/.local/share/Steam` and `~/.steam/steam`.
+It supports multiple libraries. `--game DIR` overrides discovery. `--no-copy`
+skips discovery and copying; it cannot be combined with `--game`. If discovery
+fails, supply either option explicitly.
+
+Alpakit writes `Saved/ArchivedPlugins/REF/REF-Windows.zip` under the project.
+Copying targets `GAME/FactoryGame/Mods/REF`, or
+`GAME/FactoryGame/Mods/GameFeatures/REF` for game-feature mods. Alpakit replaces
+an existing game mod folder. The success summary reports only output paths
+that exist after UAT finishes. A failed UAT returns exit 1 and reports its exit
+code on stderr, without a success summary.
+
+Both commands print one human summary line, or one JSON object with `--json`.
+Build JSON has `status`, `mod`, `project`, `outputs` (an array of existing archive
+paths), and `game_mod` (an existing copied directory or `null`). New JSON has
+`status`, `mod`, `project`, `path`, and `cpp`. Exit codes are 0 for success,
+1 for a failed operation, and 2 for bad arguments.
 
 ## License
 
