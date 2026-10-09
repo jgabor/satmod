@@ -161,6 +161,51 @@ class SetupTests(unittest.TestCase):
                 file.read_text().replace('str(p/"smoke.cpp")', '"Z:\\\\smoke.cpp"')
             )
 
+    def test_managed_msvcenv_fresh_repeat_and_stale_prefix(self):
+        cli.setup(self.args)
+        script = Path(self.args.toolchain) / "bin/x64/msvcenv.sh"
+        fresh = script.read_text()
+        block = cli.managed_msvcenv_block(self.args.wineprefix)
+        self.assertTrue(fresh.endswith(block))
+        self.assertEqual(fresh.count(cli.MSVCENV_BEGIN), 1)
+        self.assertEqual(fresh.count(cli.MSVCENV_END), 1)
+        cli.setup(self.args)
+        self.assertEqual(script.read_text(), fresh)
+        script.write_text(fresh.replace(block, cli.managed_msvcenv_block("/wrong")))
+        cli.setup(self.args)
+        self.assertEqual(script.read_text(), fresh)
+        # Completed installs made before this fix have no block at all.
+        script.write_text(fresh.replace(block, ""))
+        cli.setup(self.args)
+        self.assertEqual(script.read_text(), fresh)
+
+    def test_managed_msvcenv_overrides_bash_env_for_wrapper_and_child(self):
+        cli.setup(self.args)
+        script = Path(self.args.toolchain) / "bin/x64/msvcenv.sh"
+        startup = self.base / "bash startup"
+        startup.write_text("export WINEPREFIX=/wrong\n")
+        result = subprocess.run(
+            ["bash", "-c", 'test "$WINEPREFIX" = /wrong || exit 1; '
+             '. "$1"; bash -c \'printf %s "$WINEPREFIX"\'', "--", str(script)],
+            env=dict(os.environ, BASH_ENV=str(startup), ENV=str(startup),
+                     WINEPREFIX=self.args.wineprefix),
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(result.stdout, self.args.wineprefix)
+        self.assertEqual(result.stderr, "")
+
+    def test_validate_rejects_missing_or_mismatched_managed_msvcenv(self):
+        cli.setup(self.args)
+        root = Path(self.args.toolchain)
+        script = root / "bin/x64/msvcenv.sh"
+        content = script.read_text()
+        block = cli.managed_msvcenv_block(self.args.wineprefix)
+        for replacement in ("", cli.managed_msvcenv_block("/wrong")):
+            with self.subTest(replacement=replacement):
+                script.write_text(content.replace(block, replacement))
+                with self.assertRaisesRegex(cli.SetupError, "managed Wine prefix block"):
+                    cli.validate(root, cli.wine_environment(self.args.wineprefix))
+
     def test_root_and_missing_tools_have_no_side_effects(self):
         for kind in ("root", "tools"):
             with self.subTest(kind=kind):

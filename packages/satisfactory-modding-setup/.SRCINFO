@@ -1,7 +1,7 @@
 pkgbase = satisfactory-modding-setup
 	pkgdesc = User-run MSVC/Wine setup for Satisfactory mod development
 	pkgver = 1.0.0
-	pkgrel = 4
+	pkgrel = 5
 	url = https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html
 	install = satisfactory-modding-setup.install
 	arch = x86_64
@@ -30,7 +30,7 @@ pkgbase = satisfactory-modding-setup
 	source = satisfactory-modding-run
 	source = LICENSE
 	sha256sums = 0747197e8ff04749137978c02bada973c4bad2c6844c48909ae4217086fc7867
-	sha256sums = 154a82f0a0a6ea7e74e66ec713d823a3adfdf7352f8c4d3a9136330e54dd1c8a
+	sha256sums = 6a9d42694ad46f43af0254c36f53baa7ea8f15f156fcd21bd8b1e9adfe78d3fe
 	sha256sums = f484fcd1dd4fcd66e035c5837ab83ca52889a9ba752a654067e7c1fdb80fa7ec
 	sha256sums = 2c50315092a261a88be9569e534c24b56b08606dde657263e8728f711263e58e
 

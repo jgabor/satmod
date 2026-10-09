@@ -21,6 +21,8 @@ TOOLS = ("python3", "bash", "wine", "wineserver", "msiextract", "git", "perl", "
 SELECTION = {"msvc-version": "17.8", "sdk-version": "10.0.22621",
              "channel": "release.ltsc.17.8"}
 MARKER = ".satisfactory-modding.json"
+MSVCENV_BEGIN = "# BEGIN satisfactory-modding-setup"
+MSVCENV_END = "# END satisfactory-modding-setup"
 
 
 class SetupError(Exception):
@@ -70,9 +72,31 @@ def wine_environment(prefix):
     return env
 
 
+def managed_msvcenv_block(prefix):
+    return (f"{MSVCENV_BEGIN}\n"
+            "# Always use the managed Wine prefix, even if a shell startup file sets another.\n"
+            f"export WINEPREFIX={shlex.quote(str(prefix))}\n"
+            "export WINEARCH=win64\n"
+            "unset BASH_ENV ENV\n"
+            f"{MSVCENV_END}\n")
+
+def pin_msvcenv(root, prefix):
+    script = root / "bin/x64/msvcenv.sh"
+    require(script.is_file(), f"Missing generated environment: {script}")
+    user_file(script)
+    content = re.sub(rf"(?ms)^{re.escape(MSVCENV_BEGIN)}\n.*?"
+                     rf"^{re.escape(MSVCENV_END)}(?:\n|$)", "", script.read_text())
+    require(MSVCENV_BEGIN not in content and MSVCENV_END not in content,
+            f"Incomplete managed Wine prefix block: {script}")
+    script.write_text(content.rstrip("\n") + "\n\n" + managed_msvcenv_block(prefix))
+
 def validate(root, env):
     script = root / "bin/x64/msvcenv.sh"
     require(script.is_file(), f"Missing generated environment: {script}")
+    content = script.read_text()
+    require(content.count(MSVCENV_BEGIN) == content.count(MSVCENV_END) == 1 and
+            content.endswith(managed_msvcenv_block(env["WINEPREFIX"])),
+            f"Missing or mismatched managed Wine prefix block: {script}")
     values = run(["bash", "-c", 'source "$1"; printf "%s\\n" "$MSVCVER" "$SDKVER" '
                   '"$BASE_UNIX" "$BINDIR" "$SDKBINDIR" "$ARCH"', "--", script],
                  env, capture=True).splitlines()
@@ -240,6 +264,7 @@ def setup(args):
         require(record.get("source_pin") == PIN and record.get("selection") == SELECTION and
                 record.get("toolchain") == str(root) and record.get("wineprefix") == str(prefix),
                 "Completed installation marker does not match this setup")
+        pin_msvcenv(root, prefix)
         versions = validate(root, env)
         require(record.get("versions") == versions, "Recorded toolchain versions changed")
     else:
@@ -261,6 +286,7 @@ def setup(args):
                 "Wine initialization did not produce a win64 prefix")
         with tempfile.TemporaryDirectory(prefix=".msvc-tmp-", dir=root.parent) as tmp:
             run(["bash", SOURCE / "install.sh", stage], dict(env, TMPDIR=tmp))
+        pin_msvcenv(stage, prefix)
         versions = validate(stage, env)
         require(not root.exists(), f"Destination appeared during setup; preserved: {root}")
         stage.rename(root)

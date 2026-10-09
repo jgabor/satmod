@@ -28,6 +28,15 @@ Rules that hold throughout:
 
 Git history has the details.
 
+- **First mod (2026-10-09).** With setup pkgrel 5, Alpakit packaged a C++ &
+  Blueprint test mod for Windows. The Win64 compile ran through MSVC under Wine,
+  Alpakit copied the mod into the Steam game, and under Proton SML 3.12.0 logged
+  it as loaded and its game feature as active. It also shows in the in-game Mods
+  list.
+- **Wrapper Wine prefix fix.** Setup pkgrel 5 pins the managed prefix in
+  `msvcenv.sh` and clears shell startup variables for child wrappers. Fresh
+  installs and reruns apply the fix, with regression tests for `BASH_ENV`.
+
 - **Engine package.** Pinned to `5.6.1-css-83` with per-part checksums, an
   authenticated `gh` download helper, optional prefetch, streamed extraction, the
   `SetupDotnet.sh` permission patch, and a registration reminder. Installed and
@@ -69,7 +78,6 @@ Git history has the details.
   release.
 - [ ] Run a fresh bootstrap for a user outside the group, and confirm it adds them
   and asks for a re-login.
-- [ ] Build a mod with Alpakit and load it in the game.
 - [ ] Test package upgrade and removal, and confirm user data survives. Removal
   leaves files the build tools created under `/opt/unreal-engine-css`.
 - [ ] Decide whether to apply the guide's optional UnrealBuildTool patch

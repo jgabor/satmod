@@ -8,6 +8,11 @@ This package provides two commands:
 - `satisfactory-modding-run` runs any command, such as your IDE, with that
   environment.
 
+The toolchain wrappers pin the managed Wine prefix and ignore `BASH_ENV` for
+their child processes, so a `WINEPREFIX` set in shell startup files does not leak
+into builds. Rerun `satisfactory-modding-setup` to apply this fix to an existing
+toolchain.
+
 It covers the guide up to, but not including, **Project Setup**. Most people get it
 through [bootstrap](../../README.md). This page covers building it by hand and
 what setup does.
