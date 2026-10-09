@@ -268,8 +268,6 @@ def setup(args):
         versions = validate(root, env)
         record = {"source_pin": PIN, "selection": SELECTION, "versions": versions,
                   "toolchain": str(root), "cache": str(cache), "wineprefix": str(prefix)}
-        marker.write_text(json.dumps(record, indent=2) + "\n")
-        marker.chmod(0o600)
     # A previous successful configuration must not cover a failed rerun.
     record.pop("configured", None)
     marker.write_text(json.dumps(record, indent=2) + "\n")
@@ -288,7 +286,6 @@ def main():
     data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "satisfactory-modding"
     cache = Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache") / "satisfactory-modding/msvc-wine"
     parser = argparse.ArgumentParser(description="Install the pinned MSVC/SDK selection as your user; never prompts.")
-    parser.add_argument("--accept-msvc-license", action="store_true", help="optional compatibility flag; not required")
     parser.add_argument("--toolchain", default=str(data / "msvc"))
     parser.add_argument("--cache", default=str(cache))
     parser.add_argument("--wineprefix", default=str(data / "wineprefix"))

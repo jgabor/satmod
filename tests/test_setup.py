@@ -61,7 +61,6 @@ class SetupTests(unittest.TestCase):
             toolchain=str(self.home / "data/satisfactory-modding/msvc"),
             cache=str(self.home / "cache with spaces/msvc-wine"),
             wineprefix=str(self.home / "prefix with spaces"),
-            accept_msvc_license=False,
         )
         self.calls = []
         self.bad = None
@@ -226,7 +225,6 @@ class SetupTests(unittest.TestCase):
         )
         # pkgrel 1 markers lack configured, but remain reusable.
         marker.write_text(json.dumps(record))
-        self.args.accept_msvc_license = False
         self.calls.clear()
         again = cli.setup(self.args)
         self.assertTrue(again["reused"])
@@ -245,33 +243,6 @@ class SetupTests(unittest.TestCase):
         )
         self.assertEqual(
             result.stdout.splitlines(), [self.args.toolchain, self.args.wineprefix]
-        )
-
-    def test_compatibility_flag_does_not_change_first_install_upstream_arguments(self):
-        upstream = []
-        for accepted in (False, True):
-            with self.subTest(accept_msvc_license=accepted):
-                self.args.accept_msvc_license = accepted
-                result = cli.setup(self.args)
-                self.assertEqual(result["status"], "complete")
-                self.assertFalse(result["reused"])
-                download = self.calls[0][0]
-                stage = download[download.index("--dest") + 1]
-                upstream.append(
-                    [
-                        ["STAGE" if arg == stage else arg for arg in argv]
-                        for argv, _ in self.calls
-                        if argv[0] == "python3"
-                        or argv[:2] == ["bash", str(self.source / "install.sh")]
-                    ]
-                )
-                shutil.rmtree(self.args.toolchain)
-                shutil.rmtree(self.args.wineprefix)
-                self.calls.clear()
-        self.assertEqual(upstream[0], upstream[1])
-        self.assertIn("--accept-license", upstream[0][0])
-        self.assertEqual(
-            upstream[0][1], ["bash", str(self.source / "install.sh"), "STAGE"]
         )
 
     def test_artifact_failures_do_not_configure_or_promote(self):
@@ -370,7 +341,6 @@ class SetupTests(unittest.TestCase):
         cli.setup(self.args)
         (Path(self.args.wineprefix) / "system.reg").unlink()
         self.calls.clear()
-        self.args.accept_msvc_license = False
         with self.assertRaisesRegex(cli.SetupError, "initialized Wine prefix"):
             cli.setup(self.args)
         self.assertEqual(self.calls, [])
@@ -405,7 +375,6 @@ class SetupTests(unittest.TestCase):
         (project / ".unrealrc").write_text("# project override\n")
         cli.setup(self.args)
         os.environ["XDG_CONFIG_HOME"] = str(self.home / "new config 'quoted'")
-        self.args.accept_msvc_license = False
         result = cli.setup(self.args)
         self.assertTrue(
             rc.read_text().startswith(". /intentional/custom/environment\n")
@@ -462,7 +431,6 @@ class SetupTests(unittest.TestCase):
         self.assertTrue((Path(self.args.toolchain) / cli.MARKER).exists())
         # Retrying registration must not redownload a completed toolchain.
         self.calls.clear()
-        self.args.accept_msvc_license = False
         with self.assertRaises(cli.SetupError):
             cli.setup(self.args)
         self.assertFalse(any(a[0] == "python3" for a, _ in self.calls))
@@ -554,14 +522,6 @@ class SetupTests(unittest.TestCase):
             args.wineprefix, str(self.home / "data/satisfactory-modding/wineprefix")
         )
         self.assertEqual(json.loads(output.call_args.args[0]), {"status": "complete"})
-        self.assertFalse(args.accept_msvc_license)
-        with (
-            patch.object(cli, "setup", return_value={"status": "complete"}) as setup,
-            patch.object(cli.sys, "argv", ["setup", "--accept-msvc-license", "--json"]),
-            patch("builtins.print"),
-        ):
-            self.assertEqual(cli.main(), 0)
-        self.assertTrue(setup.call_args.args[0].accept_msvc_license)
         with (
             patch.object(cli, "setup", side_effect=OSError("failed")),
             patch.object(cli.sys, "argv", ["setup"]),
@@ -573,6 +533,22 @@ class SetupTests(unittest.TestCase):
 
 
 class SetupRecipeTests(unittest.TestCase):
+    def test_install_and_upgrade_print_notice_without_user_state(self):
+        for hook in ("post_install", "post_upgrade"):
+            with self.subTest(hook=hook), tempfile.TemporaryDirectory() as temp:
+                result = subprocess.run(
+                    ["bash", "-c", 'source "$1"; "$2"', "notice",
+                     str(RECIPE / "satisfactory-modding-setup.install"), hook],
+                    env=dict(os.environ, HOME=str(Path(temp) / "nonexistent"),
+                             SUDO_USER="nonexistent-satisfactory-user", BASH_ENV="/dev/null"),
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for text in ("satisfactory-modding-setup --json",
+                             "https://visualstudio.microsoft.com/license-terms/",
+                             "https://developer.microsoft.com/windows/downloads/windows-sdk/"):
+                    self.assertIn(text, result.stdout)
+
     def test_srcinfo_and_checksums(self):
         result = subprocess.run(
             ["makepkg", "--printsrcinfo"],

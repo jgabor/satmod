@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Update pins, build/install local packages, then run user SDK setup."""
+
+import argparse
+import grp
+import json
+import os
+import pwd
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class BootstrapError(Exception):
+    def __init__(self, message, code=1):
+        super().__init__(message)
+        self.code = code
+
+
+def run(command, *, cwd=None, env=None, capture=False, sudo=False):
+    result = subprocess.run(command, cwd=cwd, env=env, text=True, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE if capture else sys.stderr,
+                            stderr=sys.stderr)
+    if result.returncode:
+        if capture and result.stdout:
+            print(result.stdout, end="", file=sys.stderr)
+        hint = " Rerun bootstrap from a terminal where sudo can prompt." if sudo else ""
+        raise BootstrapError(f"{command[0]} failed (exit {result.returncode}).{hint}",
+                             result.returncode if result.returncode > 0 else 1)
+    return result.stdout if capture else None
+
+
+def package(name, engine=False):
+    recipe = ROOT / "packages" / name
+    cache = ROOT / ".cache" / ("engine-recipe" if engine else "setup-recipe")
+    upstream = ROOT / ".cache/upstream/msvc-wine"
+    paths = {"SRCDEST": cache / "sources" if engine else upstream,
+             "PKGDEST": cache / "packages" if engine else upstream,
+             "BUILDDIR": cache / "build", "LOGDEST": cache / "logs",
+             "TMPDIR": cache / "tmp"}
+    for path in paths.values():
+        path.mkdir(parents=True, exist_ok=True)
+    config = cache / "makepkg.conf"
+    if not config.exists():
+        config.write_text("source /etc/makepkg.conf\n" + "".join(
+            f"{key}={shlex.quote(str(path))}\n" for key, path in paths.items()))
+    env = dict(os.environ, **{key: str(path) for key, path in paths.items()})
+    with tempfile.TemporaryDirectory(prefix="bootstrap-config-", dir=cache) as temporary:
+        overlay = Path(temporary) / "makepkg.conf"
+        # makepkg restores destination environment variables, but not TMPDIR.
+        overlay.write_text(
+            f"source {shlex.quote(str(config))}\n"
+            f"for fragment in {shlex.quote(str(config) + '.d')}/*.conf; do\n"
+            '  if [[ -f "$fragment" ]]; then source "$fragment"; fi\n'
+            "done\n"
+            f"TMPDIR={shlex.quote(str(paths['TMPDIR']))}\n"
+            "PACMAN_AUTH=(sudo)\n")
+        return package_archive(name, recipe, ["makepkg", "--config", str(overlay)], env)
+
+
+def package_archive(name, recipe, command, env):
+    metadata = run(command + ["--printsrcinfo"], cwd=recipe, env=env, capture=True)
+    info = {}
+    for line in metadata.splitlines():
+        if " = " in line:
+            key, value = line.strip().split(" = ", 1)
+            info.setdefault(key, []).append(value)
+    if any(len(info.get(key, [])) != 1 for key in ("pkgname", "pkgver", "pkgrel", "arch")):
+        raise BootstrapError(f"{name}: expected single-package x86_64 metadata")
+    if info["arch"] != ["x86_64"] or info["pkgname"] != [name]:
+        raise BootstrapError(f"{name}: unexpected package name or architecture")
+    version = f"{info['pkgver'][0]}-{info['pkgrel'][0]}"
+    if info.get("epoch", ["0"])[0] != "0":
+        version = info["epoch"][0] + ":" + version
+    output = run(command + ["--packagelist"], cwd=recipe, env=env, capture=True)
+    artifacts = output.splitlines()
+    if len(artifacts) != 1 or not artifacts[0].strip():
+        raise BootstrapError(f"{name}: expected exactly one package artifact")
+    artifact = Path(artifacts[0])
+    if not artifact.is_absolute():
+        artifact = recipe / artifact
+    reused = artifact.exists()
+    if not reused:
+        try:
+            run(command + ["--syncdeps", "--noconfirm"], cwd=recipe, env=env)
+        except BootstrapError as error:
+            raise BootstrapError(
+                f"{error} If dependency authentication failed, rerun bootstrap from a "
+                "terminal where sudo can prompt.",
+                error.code) from error
+    if not artifact.is_file():
+        raise BootstrapError(f"{name}: package artifact missing: {artifact}")
+    # Public archive metadata, not a filename assertion or a security boundary.
+    query = run(["pacman", "-Qip", str(artifact)],
+                env=dict(os.environ, LC_ALL="C"), capture=True)
+    fields = {}
+    for line in query.splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            fields[key.strip()] = value.strip()
+    expected = {"Name": name, "Version": version, "Architecture": "x86_64"}
+    if any(fields.get(key) != value for key, value in expected.items()):
+        raise BootstrapError(f"{name}: incompatible or malformed archive: {artifact}; "
+                             "inspect it before retrying (not overwritten)")
+    run(["sudo", "pacman", "-U", "--needed", "--noconfirm", str(artifact)], sudo=True)
+    return {"name": name, "version": version, "path": str(artifact), "reused": reused}
+
+
+def bootstrap():
+    if os.geteuid() == 0:
+        raise BootstrapError("run bootstrap as an ordinary user, not root or sudo")
+    missing = [tool for tool in ("python3", "gh", "makepkg", "pacman", "sudo")
+               if shutil.which(tool) is None]
+    if missing:
+        raise BootstrapError("missing required tools: " + ", ".join(missing))
+    run(["sudo", "-v"], sudo=True)
+    run(["python3", str(ROOT / "scripts/update-engine-release"), "--json"])
+    packages = [package("unreal-engine-css-bin", engine=True)]
+    user = pwd.getpwuid(os.getuid())
+    try:
+        group = grp.getgrnam("unreal-engine-css")
+    except KeyError as error:
+        raise BootstrapError("engine package did not create group unreal-engine-css") from error
+    if user.pw_gid != group.gr_gid and user.pw_name not in group.gr_mem:
+        run(["sudo", "gpasswd", "-a", user.pw_name, "unreal-engine-css"], sudo=True)
+    # The group database can be current while this login session still predates it.
+    relogin_required = group.gr_gid not in os.getgroups() and group.gr_gid != os.getgid()
+    packages.append(package("satisfactory-modding-setup"))
+    if shutil.which("satisfactory-modding-setup") is None:
+        raise BootstrapError("installed satisfactory-modding-setup is not on PATH")
+    output = run(["satisfactory-modding-setup", "--json"], capture=True)
+    try:
+        setup = json.loads(output)
+    except ValueError as error:
+        raise BootstrapError("setup returned invalid JSON") from error
+    if not isinstance(setup, dict) or setup.get("status") != "complete":
+        raise BootstrapError("setup did not report status 'complete'")
+    return {"status": "complete", "packages": packages, "setup": setup,
+            "relogin_required": relogin_required}
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Update engine pins, install engine and setup packages, then run user SDK setup. "
+                    "Prompts for your sudo password when needed. Requires Arch build tools "
+                    "and existing GitHub access.",
+        epilog="Reuses validated local archives and existing makepkg.conf files. "
+               "Does not change user XDG settings or remove failed setup stages.")
+    parser.add_argument("--json", action="store_true", help="print one JSON success/error summary")
+    args = parser.parse_args()
+    try:
+        result = bootstrap()
+    except (BootstrapError, OSError) as error:
+        print(f"bootstrap: {error}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"status": "error", "error": str(error)}, sort_keys=True))
+        return getattr(error, "code", 1)
+    print(json.dumps(result, sort_keys=True) if args.json else
+          "Bootstrap complete: engine and setup packages installed; user SDK setup complete.")
+    if not args.json and result["relogin_required"]:
+        print("Log out and back in before opening the project in an IDE.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

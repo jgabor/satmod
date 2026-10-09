@@ -1,97 +1,11 @@
 # shellcheck shell=bash
 
-_setup_complete() {
-    # Read data only. Never source account files or run the setup CLI as root.
-    /usr/bin/python3 -I - "$1" <<'PY'
-import configparser
-import json
-import os
-from pathlib import Path
-import re
-import shlex
-import stat
-import sys
-
-def text(path):
-    # Bound small state reads and reject devices/FIFOs, including symlink targets.
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-    with os.fdopen(fd, 'rb') as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise ValueError('not a regular file')
-        data = stream.read(65537)
-        if len(data) > 65536:
-            raise ValueError('oversized state')
-        return data.decode('utf-8')
-
-try:
-    home = Path(sys.argv[1])
-    base = home / '.local/share/satisfactory-modding'
-    root, prefix = base / 'msvc', base / 'wineprefix'
-    environment = home / '.config/satisfactory-modding/environment.sh'
-    pin = '61b7cbc8cb9413fec8f0016ef433a90e06c37f54'
-    marker = '.satisfactory-modding.json'
-    record = json.loads(text(root / marker))
-    assert record['source_pin'] == pin
-    assert record['selection'] == {'msvc-version': '17.8', 'sdk-version': '10.0.22621',
-                                   'channel': 'release.ltsc.17.8'}
-    assert record['toolchain'] == str(root) and record['wineprefix'] == str(prefix)
-    assert record['configured'] == {'home': str(home), 'environment': str(environment)}
-    assert json.loads(text(prefix / marker)) == {'source_pin': pin}
-    # Registry files can be large; only the Wine header is needed here.
-    fd = os.open(prefix / 'system.reg', os.O_RDONLY | os.O_NONBLOCK)
-    with os.fdopen(fd, 'rb') as stream:
-        assert stat.S_ISREG(os.fstat(stream.fileno()).st_mode)
-        assert b'#arch=win64' in stream.read(4096).splitlines()
-    expected = ('# Managed by satisfactory-modding-setup\n'
-                f'export UE_WINE_MSVC={shlex.quote(str(root))}\n'
-                f'export WINEPREFIX={shlex.quote(str(prefix))}\n'
-                'export WINEARCH=win64\n')
-    assert text(environment) == expected
-    hook = (f'[ ! -f {shlex.quote(str(environment))} ] || . '
-            f'{shlex.quote(str(environment))} # satisfactory-modding-setup')
-    assert hook in text(home / '.unrealrc').splitlines()
-    ini = configparser.RawConfigParser(strict=False)
-    ini.read_string(text(home / '.config/Epic/UnrealEngine/Install.ini'))
-    assert any(v.rstrip('/') == '/opt/unreal-engine-css'
-               for v in dict(ini.items('Installations')).values())
-    msvc, sdk = record['versions']['msvc'], record['versions']['sdk']
-    assert re.fullmatch(r'14\.38\.\d+', msvc) and re.fullmatch(r'10\.0\.22621\.\d+', sdk)
-    vc, kits = root / 'vc/tools/msvc' / msvc, root / 'kits/10'
-    files = [root / 'bin/x64' / n for n in ('cl', 'link', 'rc', 'msvcenv.sh')]
-    files += [root / 'bin' / n for n in ('msvctricks.exe', 'process_sourcedependencies.exe')]
-    files += [vc / 'bin/Hostx64/x64' / n for n in ('cl.exe', 'link.exe')]
-    files += [vc / 'include/vcruntime.h', vc / 'lib/x64/libcmt.lib',
-              kits / 'bin' / sdk / 'x64/rc.exe',
-              kits / 'include' / sdk / 'um/windows.h',
-              kits / 'include' / sdk / 'shared/windef.h',
-              kits / 'include' / sdk / 'ucrt/stdio.h',
-              kits / 'lib' / sdk / 'um/x64/kernel32.lib',
-              kits / 'lib' / sdk / 'ucrt/x64/libucrt.lib']
-    assert all(p.is_file() and p.stat().st_size > 0 for p in files)
-except Exception:
-    sys.exit(1)
-PY
-}
-
 post_install() {
-    local account name uid home _
-    # SUDO_USER must resolve to a non-root account with an absolute home.
-    # Root's HOME and XDG variables never identify the intended account.
-    if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] &&
-       account=$(getent passwd "$SUDO_USER" 2>/dev/null) &&
-       IFS=: read -r name _ uid _ _ home _ <<< "$account" &&
-       [[ $name == "$SUDO_USER" && $uid =~ ^[0-9]+$ && ! $uid =~ ^0+$ && $home == /* ]] &&
-       _setup_complete "$home" 2>/dev/null; then
-        return 0
-    fi
     printf '%s\n' \
-        'If setup is not already complete for your account, run as your ordinary user, without sudo:' \
+        'Run as your ordinary user (not with sudo) to install or check the MSVC toolchain:' \
         '  satisfactory-modding-setup --json' \
-        'Running setup downloads Microsoft MSVC/Windows SDK tools subject to applicable Microsoft license terms.' \
-        'Terms: https://visualstudio.microsoft.com/license-terms/ and https://developer.microsoft.com/windows/downloads/windows-sdk/' \
-        'Account lookup or custom paths may prevent this notice from detecting completed setup.' \
-        'Use satisfactory-modding-run COMMAND [ARGUMENT ...] outside the engine shell.' \
-        'Removal leaves user toolchains, cache, Wine prefix, and configuration intact.' || :
+        'This downloads Microsoft MSVC/Windows SDK tools under their license terms:' \
+        'https://visualstudio.microsoft.com/license-terms/ and https://developer.microsoft.com/windows/downloads/windows-sdk/' || :
     return 0
 }
 post_upgrade() {

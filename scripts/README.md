@@ -1,8 +1,108 @@
-# Maintainer scripts
+# Scripts
 
-This directory is reserved for future release-maintenance and local bootstrap
-scripts. No maintainer/bootstrap scripts are implemented here.
+Two scripts for installing and maintaining the packages. Run them as your ordinary
+user, not with `sudo`. They find the repository from their own location, so you
+can run them from any directory. See the [root guide](../README.md) for
+prerequisites and terms.
 
-Package recipes remain self-contained in their own package directories.
-See the [pinned source inputs](../upstream-inputs.json)
-and the [work scope](../TODO.md) before implementing scripts.
+## bootstrap
+
+```sh
+./scripts/bootstrap [--json]
+```
+
+Installs or upgrades everything in one go. It needs `python3`, `gh`, `makepkg`,
+`pacman`, and `sudo`, and must run in a terminal so sudo can ask for your
+password.
+
+1. Runs `sudo -v`, so the password prompt comes before the long build.
+2. Runs `update-engine-release` to move the engine pins to the latest release.
+   This always runs, so bootstrap needs a working `gh` login and network access
+   even when every package is cached. If a new release has come out, a rerun
+   picks it up and builds it.
+3. For the engine and then the setup package: reuses the package in `.cache/` if
+   one with the expected name, version, and architecture exists. Otherwise it
+   builds one with `makepkg --syncdeps`. Then it installs it with
+   `sudo pacman -U --needed`.
+4. Right after the engine is installed, adds you to the `unreal-engine-css` group
+   with `sudo gpasswd -a`, unless you are already a member. The group can write
+   to the engine, which Unreal's build tools need.
+5. Runs `satisfactory-modding-setup --json` as your user.
+
+If your current login does not have the group yet, bootstrap tells you to log out
+and back in before you open the project in an IDE. Setup itself does not need
+the group.
+
+If a step fails, bootstrap stops and exits with that step's status. Run it again
+to continue: finished downloads and packages are reused. Reused packages are
+matched on metadata only, not contents, so only keep packages you built yourself
+in `.cache/`.
+
+### Cache layout
+
+| Path | Contents |
+| --- | --- |
+| `.cache/engine-recipe/sources/` | Engine archive parts |
+| `.cache/engine-recipe/packages/` | Built engine packages |
+| `.cache/upstream/msvc-wine/` | `msvc-wine` snapshot and built setup packages |
+| `.cache/*-recipe/{build,logs,tmp}/` | makepkg working directories |
+| `.cache/*-recipe/makepkg.conf` | Created on first run. Edit it to change build settings, such as compression. |
+
+Bootstrap always uses these paths, even if your own makepkg configuration sets
+others. It also always uses `sudo` to install build dependencies.
+
+### Output
+
+Without `--json`, bootstrap prints one line when it finishes, plus a second line
+asking you to log out and back in when that is needed. With `--json`, it prints
+one JSON object on stdout, and build logs go to stderr:
+
+```json
+{"status": "complete",
+ "packages": [{"name": "...", "version": "...", "path": "...", "reused": true}],
+ "setup": {"status": "complete", "...": "..."},
+ "relogin_required": false}
+```
+
+`relogin_required` is true when your current login session does not have the
+`unreal-engine-css` group yet.
+
+On failure, `--json` prints `{"status": "error", "error": "..."}`. The `setup`
+object is the output of `satisfactory-modding-setup --json`.
+
+## update-engine-release
+
+```sh
+./scripts/update-engine-release --check   # Report only. Changes nothing.
+./scripts/update-engine-release           # Update the pins.
+```
+
+Moves the engine recipe to GitHub's latest non-draft, non-prerelease release of
+`satisfactorymodding/UnrealEngine`. It needs `gh` with an existing login, and
+`makepkg`. It reads release metadata only: it does not download archives, build,
+install, or commit.
+
+The release must have archive parts named
+`UnrealEngine-CSS-Editor-Linux.tar.zst.00`, `.01`, and so on, numbered from zero
+with no gaps, and each part must have an upstream SHA-256 digest. Debug archives
+are ignored. If anything is missing or unexpected, the script changes nothing and
+exits 1.
+
+An update rewrites these files and nothing else:
+
+- the engine fields and `checked_on` date in [upstream-inputs.json](../upstream-inputs.json)
+- `packages/unreal-engine-css-bin/PKGBUILD`, `.SRCINFO`, and `LICENSE.md`
+
+A new release resets `pkgrel` to 1. New metadata for the same release raises it
+by one. If nothing changed, no file is touched. The script refuses to run if the
+local recipe has edits it does not expect, such as a changed patch or extra
+sources.
+
+The output is one line, such as
+`unchanged: 5.6.1-css-83 (pkgver=5.6.1.css83, pkgrel=3)`. With `--json` it is one
+JSON object instead: `status` (`unchanged`, `updated`, or `update-available`), `changed`,
+`tag`, `pkgver`, and `pkgrel`.
+
+After an update, review `git diff` and commit it yourself. The release API cannot
+tell whether a new engine still builds with the pinned patch or works with the
+pinned MSVC version. The engine build checks the patch.

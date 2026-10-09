@@ -1,6 +1,8 @@
 # Local downloads, extraction, and source caches.
 /.cache/
 /source-cache/
+/packages/*/*.tar.gz
+/packages/*/.ghasset.*/
 UnrealEngine-CSS-Editor-Linux.tar.zst*
 UnrealEngine-CSS-*-Editor-Linux.tar.zst.*
 

@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Refresh only the CSS engine pins, using existing github.com authentication."""
+
+import argparse
+import base64
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY = "satisfactorymodding/UnrealEngine"
+API = "repos/" + REPOSITORY
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def run(args, env, cwd=None):
+    result = subprocess.run(args, env=env, cwd=cwd, capture_output=True)
+    require(result.returncode == 0, f"{args[0]} failed; check tool availability, authentication and API access.")
+    return result.stdout
+
+
+def api(endpoint, env):
+    return json.loads(run(["gh", "api", "--hostname", "github.com", endpoint], env))
+
+
+def positive(value):
+    return type(value) is int and value > 0
+
+
+def sha(value):
+    require(isinstance(value, str) and re.fullmatch(r"[a-fA-F0-9]{40}", value),
+            "Invalid Git commit or blob SHA.")
+    return value.lower()
+
+
+def resolve(env):
+    run(["gh", "auth", "status", "--active", "--hostname", "github.com"], env)
+    release = api(API + "/releases/latest", env)
+    require(isinstance(release, dict) and isinstance(release.get("assets"), list),
+            "Invalid release metadata object or asset list.")
+    require(release.get("draft") is False and release.get("prerelease") is False,
+            "Latest release must not be a draft or prerelease.")
+    tag = release.get("tag_name")
+    match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)-css-([0-9]+)", tag or "")
+    require(match, "Unsupported engine tag; expected VERSION-css-N with numeric VERSION and N.")
+    require(positive(release.get("id")), "Invalid release ID.")
+    for field in ("published_at", "target_commitish"):
+        require(isinstance(release.get(field), str) and release[field].strip(),
+                "Missing release publication or target metadata.")
+    parts = {}
+    ids = set()
+    for asset in release["assets"]:
+        require(isinstance(asset, dict), "Invalid release asset metadata object.")
+        part = re.fullmatch(r"UnrealEngine-CSS-Editor-Linux\.tar\.zst\.([0-9]+)", asset.get("name", ""))
+        if not part:
+            continue
+        index = int(part[1])
+        require(index not in parts and asset.get("id") not in ids, "Duplicate engine part index or asset ID.")
+        require(positive(asset.get("id")) and positive(asset.get("size")), "Invalid engine asset ID or size.")
+        digest = asset.get("digest")
+        require(isinstance(digest, str) and re.fullmatch(r"sha256:[a-fA-F0-9]{64}", digest),
+                "Every engine part must have an upstream SHA256 digest; no archives were downloaded.")
+        ids.add(asset["id"])
+        parts[index] = dict(id=asset["id"], name=asset["name"], bytes=asset["size"], sha256=digest[7:].lower())
+    require(parts and sorted(parts) == list(range(len(parts))), "Engine parts must start at zero with no gaps.")
+    source = api(API + "/commits/" + tag, env)
+    require(isinstance(source, dict), "Invalid commit metadata object.")
+    commit = sha(source.get("sha"))
+    notice = api(API + "/contents/LICENSE.md?ref=" + commit, env)
+    require(isinstance(notice, dict) and isinstance(notice.get("content"), str),
+            "Invalid license notice metadata object or content.")
+    require(notice.get("type") == "file" and notice.get("encoding") == "base64"
+            and notice.get("path") == "LICENSE.md" and positive(notice.get("size"))
+            and notice["size"] <= 1024 * 1024, "Invalid or oversized license notice metadata.")
+    blob = sha(notice["sha"])
+    content = base64.b64decode("".join(notice["content"].split()), validate=True)
+    require(len(content) == notice["size"] and content.decode("utf-8").strip(), "Invalid license notice content.")
+    require(hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest() == blob,
+            "License notice does not match its Git blob SHA.")
+    engine = dict(repository=REPOSITORY, tag=tag, source_commit=commit,
+                  license_notice=dict(path="LICENSE.md", blob=blob, bytes=len(content),
+                                      sha256=hashlib.sha256(content).hexdigest()),
+                  release_id=release["id"], published_at=release["published_at"],
+                  target_commitish=release["target_commitish"], assets=[parts[i] for i in sorted(parts)])
+    return engine, content, match[1] + ".css" + match[2]
+
+
+def replace(text, pattern, replacement):
+    text, count = re.subn(pattern, lambda _: replacement, text, flags=re.MULTILINE)
+    require(count == 1, "Unsupported PKGBUILD layout; expected one owned metadata section.")
+    return text
+
+
+def recipe(text, engine, pkgver, pkgrel, patch_hash):
+    require(re.search(r'^source=\(\n(?:  "\$\{_parts\[[0-9]+\]\}::ghasset://'
+                      + REPOSITORY + r'/\$\{_release\}/[1-9][0-9]*"\n)+'
+                      r"  'LICENSE.md'\n  'setup-dotnet-permissions.patch'\n\)$", text, re.MULTILINE),
+            "Unsupported source section; extra or modified local sources must be resolved first.")
+    text = replace(text, r"^pkgver=[^\n]+$", "pkgver=" + pkgver)
+    text = replace(text, r"^pkgrel=[^\n]+$", "pkgrel=" + str(pkgrel))
+    text = replace(text, r"^_release='[^'\n]+'$", "_release='" + engine["tag"] + "'")
+    parts = [f'  "UnrealEngine-CSS-${{_release}}-Editor-Linux.tar.zst.{a["name"].rsplit(".", 1)[1]}"'
+             for a in engine["assets"]]
+    text = replace(text, r"^_parts=\(\n[^)]*\n\)$", "_parts=(\n" + "\n".join(parts) + "\n)")
+    sources = [f'  "${{_parts[{i}]}}::ghasset://{REPOSITORY}/${{_release}}/{a["id"]}"'
+               for i, a in enumerate(engine["assets"])]
+    text = replace(text, r"^source=\(\n[^)]*\n\)$", "source=(\n" + "\n".join(sources)
+                   + "\n  'LICENSE.md'\n  'setup-dotnet-permissions.patch'\n)")
+    require(re.search(r'^noextract=\("\$\{_parts\[@\]\}"\)$', text, re.MULTILINE),
+            "Unsupported noextract metadata.")
+    hashes = [a["sha256"] for a in engine["assets"]] + [engine["license_notice"]["sha256"], patch_hash]
+    return replace(text, r"^sha256sums=\(\n[^)]*\n\)$",
+                   "sha256sums=(\n" + "\n".join(f"  '{h}'" for h in hashes) + "\n)")
+
+
+def metadata(text, package, env, engine, pkgver, pkgrel, patch_hash):
+    # This sources the user's trusted recipe, not shell text supplied by GitHub.
+    # --printsrcinfo does not invoke download agents or package().
+    with tempfile.TemporaryDirectory(prefix="css-release-metadata-") as temp:
+        directory = Path(temp)
+        (directory / "PKGBUILD").write_text(text)
+        for name in ("download-gh-asset", "unreal-engine-css-bin.install"):
+            shutil.copyfile(package / name, directory / name)
+        run(["bash", "-n", "PKGBUILD"], env, directory)
+        output = run(["makepkg", "--printsrcinfo"], env, directory)
+    fields = {}
+    for line in output.decode().splitlines():
+        if " = " in line:
+            key, value = line.strip().split(" = ", 1)
+            fields.setdefault(key, []).append(value)
+    aliases = [f'UnrealEngine-CSS-{engine["tag"]}-Editor-Linux.tar.zst.{a["name"].rsplit(".", 1)[1]}'
+               for a in engine["assets"]]
+    expected = dict(pkgver=[pkgver], pkgrel=[str(pkgrel)], noextract=aliases,
+                    source=[f'{alias}::ghasset://{REPOSITORY}/{engine["tag"]}/{a["id"]}'
+                            for alias, a in zip(aliases, engine["assets"])]
+                    + ["LICENSE.md", "setup-dotnet-permissions.patch"],
+                    sha256sums=[a["sha256"] for a in engine["assets"]]
+                    + [engine["license_notice"]["sha256"], patch_hash])
+    require(all(fields.get(key) == value for key, value in expected.items()),
+            "Generated .SRCINFO does not match proposed engine pins.")
+    return output
+
+
+def publish(changes):
+    # Stage on each destination filesystem, then replace. Roll back ordinary
+    # write failures. This is not a crash-atomic multi-file transaction.
+    staged = {}
+    originals = {path: path.read_bytes() for path in changes}
+    replaced = []
+    try:
+        for path, data in changes.items():
+            fd, name = tempfile.mkstemp(prefix=".engine-release-", dir=path.parent)
+            staged[path] = Path(name)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+            os.chmod(name, path.stat().st_mode & 0o777)
+        for path in changes:
+            os.replace(staged[path], path)
+            replaced.append(path)
+    except OSError:
+        for path in reversed(replaced):
+            # Reuse the same-parent staging path for rollback.
+            staged[path].write_bytes(originals[path])
+            os.chmod(staged[path], path.stat().st_mode & 0o777)
+            os.replace(staged[path], path)
+        raise
+    finally:
+        for path in staged.values():
+            path.unlink(missing_ok=True)
+
+
+def update(check):
+    require(os.geteuid() != 0, "Run as a non-root user; makepkg and checkout mutations must not run as root.")
+    env = dict(os.environ)
+    for key in ("GH_DEBUG", "DEBUG", "GH_HOST", "GH_REPO", "GH_FORCE_TTY"):
+        env.pop(key, None)
+    env.update(GH_PROMPT_DISABLED="1", GH_PAGER="cat", GH_NO_UPDATE_NOTIFIER="1",
+               GH_NO_EXTENSION_UPDATE_NOTIFIER="1")
+    package = ROOT / "packages/unreal-engine-css-bin"
+    manifest_path = ROOT / "upstream-inputs.json"
+    paths = [manifest_path] + [package / name for name in ("PKGBUILD", "LICENSE.md", ".SRCINFO")]
+    require(all(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(ROOT)
+                for path in paths), "Pin files must be regular files inside this checkout.")
+    if not check:
+        require(all(path.stat().st_uid == os.geteuid() and os.access(path.parent, os.W_OK)
+                    for path in paths), "Pin files must be user-owned with writable parent directories.")
+    manifest = json.loads(manifest_path.read_bytes())
+    text = (package / "PKGBUILD").read_text()
+    rel = re.search(r"^pkgrel=([0-9]+)$", text, re.MULTILINE)
+    require(rel and int(rel[1]) > 0, "Expected a positive numeric pkgrel.")
+    hashes = re.search(r"^sha256sums=\(\n([^)]*)\n\)$", text, re.MULTILINE)
+    require(hashes, "Unsupported checksum section.")
+    pinned_hashes = re.findall(r"'([a-f0-9]{64})'", hashes[1])
+    patch_hash = hashlib.sha256((package / "setup-dotnet-permissions.patch").read_bytes()).hexdigest()
+    require(pinned_hashes and pinned_hashes[-1] == patch_hash,
+            "Local dotnet patch differs from its pinned checksum; resolve that change first.")
+    engine, notice, pkgver = resolve(env)
+    changed = engine != manifest["engine"]
+    pkgrel = (1 if engine["tag"] != manifest["engine"]["tag"] else int(rel[1]) + 1) if changed else int(rel[1])
+    proposed = recipe(text, engine, pkgver, pkgrel, patch_hash)
+    srcinfo = metadata(proposed, package, env, engine, pkgver, pkgrel, patch_hash)
+    if not changed:
+        require(proposed == text and (package / "LICENSE.md").read_bytes() == notice
+                and (package / ".SRCINFO").read_bytes() == srcinfo,
+                "Local recipe, notice or .SRCINFO differs from unchanged pins; resolve local changes first.")
+    if changed and not check:
+        manifest["engine"] = engine
+        manifest["checked_on"] = datetime.date.today().isoformat()
+        publish(dict(zip(paths, [(json.dumps(manifest, indent=2) + "\n").encode(),
+                                 proposed.encode(), notice, srcinfo])))
+    return dict(status=("update-available" if check else "updated") if changed else "unchanged",
+                changed=changed, tag=engine["tag"], pkgver=pkgver, pkgrel=pkgrel)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, epilog="Requires gh and makepkg. Never logs in, downloads engine archives, builds, installs or commits. Exit 0 on success, 1 on failure.")
+    parser.add_argument("--check", action="store_true", help="validate refreshed metadata and report changes without editing checkout or cache")
+    parser.add_argument("--json", action="store_true", help="emit one JSON result to stdout; diagnostics go to stderr")
+    args = parser.parse_args()
+    try:
+        result = update(args.check)
+    except ValueError as error:
+        # JSON/base64 decoding errors can contain upstream-controlled data.
+        message = str(error) if type(error) is ValueError else "Invalid upstream metadata."
+        print("update-engine-release: " + message, file=sys.stderr)
+        return 1
+    except (OSError, KeyError, TypeError, UnicodeError, OverflowError):
+        print("update-engine-release: Cannot read, validate or publish metadata; checkout update failed.", file=sys.stderr)
+        return 1
+    print(json.dumps(result) if args.json else f'{result["status"]}: {result["tag"]} (pkgver={result["pkgver"]}, pkgrel={result["pkgrel"]})')
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
