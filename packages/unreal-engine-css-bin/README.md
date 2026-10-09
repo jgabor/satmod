@@ -49,7 +49,7 @@ leaves a partial part under its final name.
 
 ## Register the engine
 
-`satisfactory-modding-setup` registers the engine for you. If you only install
+`satisfactory-modding setup` registers the engine for you. If you only install
 the engine, register it yourself **as your ordinary user, without sudo**:
 
 ```sh

@@ -1,16 +1,18 @@
 # satisfactory-modding-setup
 
-This package provides two commands:
+This package provides one CLI, `satisfactory-modding`, with three subcommands:
 
-- `satisfactory-modding-setup` installs the MSVC compiler and Windows SDK under
+- `satisfactory-modding setup` installs the MSVC compiler and Windows SDK under
   Wine for your user, registers the engine, and writes the environment the engine
   needs to build mods. Run it yourself; package installation never runs it.
-- `satisfactory-modding-run` runs any command, such as your IDE, with that
+- `satisfactory-modding run` runs any command, such as your IDE, with that
   environment.
+- `satisfactory-modding doctor` checks the installation without changing files,
+  downloading anything, starting Wine, or running smoke tests.
 
 The toolchain wrappers pin the managed Wine prefix and ignore `BASH_ENV` for
 their child processes, so a `WINEPREFIX` set in shell startup files does not leak
-into builds. Rerun `satisfactory-modding-setup` to apply this fix to an existing
+into builds. Rerun `satisfactory-modding setup` to apply this fix to an existing
 toolchain.
 
 It covers the guide up to, but not including, **Project Setup**. Most people get it
@@ -38,7 +40,7 @@ Microsoft files.
 Run as your ordinary user, not with `sudo`:
 
 ```sh
-satisfactory-modding-setup
+satisfactory-modding setup
 ```
 
 This downloads Microsoft tools under the
@@ -97,15 +99,51 @@ The engine loads the environment through `~/.unrealrc`. For tools started
 outside the engine, such as an IDE, use the launcher:
 
 ```sh
-satisfactory-modding-run /path/to/your/ide
-satisfactory-modding-run /opt/unreal-engine-css/Engine/Binaries/Linux/UnrealEditor
+satisfactory-modding run /path/to/your/ide
+satisfactory-modding run /opt/unreal-engine-css/Engine/Binaries/Linux/UnrealEditor
 ```
 
 It loads the environment file and runs the command with your arguments as given.
 It exits 1 if setup has not run, 2 if no command is given, and otherwise with the
 command's own exit status.
 
+Use `satisfactory-modding run --help` for help. To run a command named `--help`,
+use `satisfactory-modding run -- --help`. Arguments after the command pass through
+unchanged, including spaces and quotes. Bash sources the environment file before
+replacing itself with the command, so signals pass through too.
+
+## Check the installation
+
+```sh
+satisfactory-modding doctor
+satisfactory-modding doctor --json
+```
+
+Doctor checks:
+
+- `engine`: the engine directory exists.
+- `engine-group`: this process can write to the engine. A failure distinguishes
+  missing group membership from a login that needs to be refreshed.
+- `registration`: `Install.ini` maps the packaged engine.
+- `environment`: the environment file has the exact managed format. Doctor reads
+  custom toolchain and Wine prefix paths from it.
+- `toolchain`: the completion marker matches the source pin and paths, and the
+  managed `msvcenv.sh` block pins the same prefix. Run `satisfactory-modding setup`
+  for full revalidation and smoke tests.
+- `unrealrc`: the managed hook is present in `~/.unrealrc`.
+- `wineprefix-env`: warns if `WINEPREFIX` differs or `BASH_ENV` is set. Wrappers
+  pin the managed prefix, but other tools outside `satisfactory-modding run`
+  may use the wrong one.
+
+Each check prints one line with its id, `ok`, `warn`, or `fail`, and a message
+with a fix when needed. JSON has `status` (`ok` or `fail`) and a `checks` array;
+each check has `id`, `status`, and `message`. Doctor exits 1 if any check fails,
+and 0 otherwise, including when there are only warnings.
+
 ## Exit status and output
+
+A bare `satisfactory-modding` prints help and exits 2. Use `--help` on the CLI or
+any subcommand for help.
 
 Setup exits 0 on success, 1 on failure, and 2 on invalid arguments. Progress and
 errors go to stderr. On success it prints one summary to stdout. The `--json`

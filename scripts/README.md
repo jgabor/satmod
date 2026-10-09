@@ -27,7 +27,7 @@ password.
 4. Right after the engine is installed, adds you to the `unreal-engine-css` group
    with `sudo gpasswd -a`, unless you are already a member. The group can write
    to the engine, which Unreal's build tools need.
-5. Runs `satisfactory-modding-setup --json` as your user.
+5. Runs `satisfactory-modding setup --json` as your user.
 
 If your current login does not have the group yet, bootstrap tells you to log out
 and back in before you open the project in an IDE. Setup itself does not need
@@ -68,7 +68,7 @@ one JSON object on stdout, and build logs go to stderr:
 `unreal-engine-css` group yet.
 
 On failure, `--json` prints `{"status": "error", "error": "..."}`. The `setup`
-object is the output of `satisfactory-modding-setup --json`.
+object is the output of `satisfactory-modding setup --json`.
 
 ## update-engine-release
 

@@ -4,6 +4,8 @@
 import argparse
 import configparser
 import json
+import grp
+import pwd
 import os
 from pathlib import Path
 import re
@@ -205,14 +207,11 @@ def configure(home, config, root, prefix):
     config.mkdir(parents=True, exist_ok=True)
     file = config / "environment.sh"
     user_file(file)
-    file.write_text("# Managed by satisfactory-modding-setup\n"
-                    f"export UE_WINE_MSVC={shlex.quote(str(root))}\n"
-                    f"export WINEPREFIX={shlex.quote(str(prefix))}\n"
-                    "export WINEARCH=win64\n")
+    file.write_text(environment_text(root, prefix))
     file.chmod(0o600)
     rc = home / ".unrealrc"
     user_file(rc)
-    line = f"[ ! -f {shlex.quote(str(file))} ] || . {shlex.quote(str(file))} # satisfactory-modding-setup"
+    line = hook_line(file)
     text = rc.read_text() if rc.exists() else ""
     # Replace our own hook if XDG_CONFIG_HOME changed; leave all other hooks intact.
     lines = [s for s in text.splitlines(keepends=True)
@@ -307,25 +306,152 @@ def setup(args):
             "versions": versions, "source_pin": PIN, "registration": registration}
 
 
+def environment_file():
+    home = Path.home()
+    return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "satisfactory-modding/environment.sh"
+
+def environment_text(root, prefix):
+    return ("# Managed by satisfactory-modding-setup\n"
+            f"export UE_WINE_MSVC={shlex.quote(str(root))}\n"
+            f"export WINEPREFIX={shlex.quote(str(prefix))}\n"
+            "export WINEARCH=win64\n")
+
+def hook_line(file):
+    return f"[ ! -f {shlex.quote(str(file))} ] || . {shlex.quote(str(file))} # satisfactory-modding-setup"
+
+def launch(command):
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        print("satisfactory-modding run: supply a command (see run --help)", file=sys.stderr)
+        return 2
+    file = environment_file()
+    require(file.is_file(), f"Missing {file}; run satisfactory-modding setup first")
+    os.execvp("bash", ["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
+                       "satisfactory-modding run", str(file), *command])
+
+def doctor():
+    home = Path.home()
+    file = environment_file().resolve()
+    checks = []
+    def check(id, action):
+        try:
+            status, message = action()
+        except (OSError, ValueError, TypeError, KeyError, SetupError, configparser.Error) as error:
+            status, message = "fail", f"{error}; run satisfactory-modding setup"
+        checks.append({"id": id, "status": status, "message": " ".join(message.splitlines())})
+
+    check("engine", lambda: ("ok", f"Engine exists: {ENGINE / 'Engine'}")
+          if (ENGINE / "Engine").is_dir() else
+          ("fail", f"Missing {ENGINE / 'Engine'}; install unreal-engine-css-bin"))
+    def engine_group():
+        engine = ENGINE / "Engine"
+        if not engine.is_dir():
+            return "fail", f"Cannot check write access without {engine}; install unreal-engine-css-bin"
+        if os.access(engine, os.W_OK):
+            return "ok", "Engine is writable by this process"
+        user = pwd.getpwuid(os.getuid())
+        try:
+            group = grp.getgrnam("unreal-engine-css")
+        except KeyError:
+            return "fail", "Group unreal-engine-css is missing; reinstall unreal-engine-css-bin"
+        if group.gr_gid in os.getgroups() or group.gr_gid == os.getgid():
+            return "fail", (f"In group unreal-engine-css, but {engine} is not group-writable; "
+                            "reinstall unreal-engine-css-bin")
+        if user.pw_gid == group.gr_gid or user.pw_name in group.gr_mem:
+            return "fail", "In group unreal-engine-css but this login predates it; log out and back in, then retry doctor"
+        return "fail", ("Not in group unreal-engine-css; run sudo gpasswd -a \"$USER\" unreal-engine-css, "
+                        "then log out and back in")
+    check("engine-group", engine_group)
+    def registration():
+        ini = read_ini(home / ".config/Epic/UnrealEngine/Install.ini")
+        values = dict(ini.items("Installations")).values() if ini.has_section("Installations") else ()
+        require(any(v.rstrip("/") == str(ENGINE) for v in values),
+                f"Engine registration missing for {ENGINE}")
+        return "ok", "Engine registration matches"
+    check("registration", registration)
+    paths = {}
+    def environment():
+        content = file.read_bytes().decode("utf-8")
+        lines = content.splitlines()
+        require(len(lines) == 4, f"Invalid managed format in {file}")
+        root_tokens = shlex.split(lines[1])
+        prefix_tokens = shlex.split(lines[2])
+        require(len(root_tokens) == len(prefix_tokens) == 2 and
+                root_tokens[0] == prefix_tokens[0] == "export" and
+                root_tokens[1].startswith("UE_WINE_MSVC=") and
+                prefix_tokens[1].startswith("WINEPREFIX="), f"Invalid managed format in {file}")
+        root = Path(root_tokens[1].split("=", 1)[1])
+        prefix = Path(prefix_tokens[1].split("=", 1)[1])
+        require(root.is_absolute() and prefix.is_absolute() and
+                content == environment_text(root, prefix), f"Invalid managed format in {file}")
+        paths.update(root=root, prefix=prefix)
+        return "ok", f"Managed environment: {file}"
+    check("environment", environment)
+    def toolchain():
+        require(bool(paths), "Cannot check toolchain without a valid managed environment")
+        root, prefix = paths["root"], paths["prefix"]
+        record = json.loads((root / MARKER).read_text())
+        require(isinstance(record, dict) and record.get("source_pin") == PIN and
+                record.get("selection") == SELECTION and record.get("toolchain") == str(root) and
+                record.get("wineprefix") == str(prefix), "Missing or mismatched toolchain completion marker")
+        content = (root / "bin/x64/msvcenv.sh").read_text()
+        require(content.count(MSVCENV_BEGIN) == content.count(MSVCENV_END) == 1 and
+                content.endswith(managed_msvcenv_block(prefix)), "Missing or mismatched managed Wine prefix block")
+        return "ok", "Toolchain marker and prefix match; run satisfactory-modding setup for full revalidation"
+    check("toolchain", toolchain)
+    def unrealrc():
+        require(hook_line(file) in (home / ".unrealrc").read_text().splitlines(),
+                "Managed hook missing from ~/.unrealrc")
+        return "ok", "Managed ~/.unrealrc hook is present"
+    check("unrealrc", unrealrc)
+    def wineprefix_env():
+        inherited = os.environ.get("WINEPREFIX")
+        conflict = inherited is not None and (not paths or inherited != str(paths["prefix"]))
+        if conflict or "BASH_ENV" in os.environ:
+            return "warn", ("WINEPREFIX differs or BASH_ENV is set; wrappers pin the prefix, but other tools outside "
+                            "satisfactory-modding run may use the wrong prefix; unset WINEPREFIX and BASH_ENV or use satisfactory-modding run")
+        return "ok", "No conflicting WINEPREFIX or BASH_ENV"
+    check("wineprefix-env", wineprefix_env)
+    return {"status": "fail" if any(c["status"] == "fail" for c in checks) else "ok", "checks": checks}
+
 def main():
     home = Path.home()
     data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "satisfactory-modding"
     cache = Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache") / "satisfactory-modding/msvc-wine"
-    parser = argparse.ArgumentParser(description="Install the pinned MSVC/SDK selection as your user; never prompts.")
-    parser.add_argument("--toolchain", default=str(data / "msvc"))
-    parser.add_argument("--cache", default=str(cache))
-    parser.add_argument("--wineprefix", default=str(data / "wineprefix"))
-    parser.add_argument("--json", action="store_true", help="print one JSON summary on success")
+    parser = argparse.ArgumentParser(prog="satisfactory-modding", description="Set up, run, and check the modding environment.")
+    commands = parser.add_subparsers(dest="subcommand")
+    setup_parser = commands.add_parser("setup", help="install or revalidate the pinned MSVC/SDK; never prompts")
+    setup_parser.add_argument("--toolchain", default=str(data / "msvc"))
+    setup_parser.add_argument("--cache", default=str(cache))
+    setup_parser.add_argument("--wineprefix", default=str(data / "wineprefix"))
+    setup_parser.add_argument("--json", action="store_true", help="print one JSON summary on success")
+    run_parser = commands.add_parser("run", help="source the managed environment and exec COMMAND")
+    run_parser.add_argument("command", nargs=argparse.REMAINDER, metavar="COMMAND")
+    doctor_parser = commands.add_parser("doctor", help="check the installation without changing it")
+    doctor_parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    if args.subcommand is None:
+        parser.print_help()
+        return 2
     try:
+        if args.subcommand == "run":
+            return launch(args.command)
+        if args.subcommand == "doctor":
+            result = doctor()
+            if args.json:
+                print(json.dumps(result))
+            else:
+                for check in result["checks"]:
+                    print(f"{check['id']}: {check['status']}: {check['message']}")
+            return 0 if result["status"] == "ok" else 1
         result = setup(args)
     except (SetupError, OSError, ValueError, TypeError, KeyError, configparser.Error) as error:
-        print(f"satisfactory-modding-setup: {error}", file=sys.stderr)
+        print(f"satisfactory-modding: {error}", file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True) if args.json else
           f"Setup complete: {result['toolchain']} ({result['registration']})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

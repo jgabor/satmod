@@ -131,9 +131,9 @@ def bootstrap():
     # The group database can be current while this login session still predates it.
     relogin_required = group.gr_gid not in os.getgroups() and group.gr_gid != os.getgid()
     packages.append(package("satisfactory-modding-setup"))
-    if shutil.which("satisfactory-modding-setup") is None:
-        raise BootstrapError("installed satisfactory-modding-setup is not on PATH")
-    output = run(["satisfactory-modding-setup", "--json"], capture=True)
+    if shutil.which("satisfactory-modding") is None:
+        raise BootstrapError("installed satisfactory-modding is not on PATH")
+    output = run(["satisfactory-modding", "setup", "--json"], capture=True)
     try:
         setup = json.loads(output)
     except ValueError as error:

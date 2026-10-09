@@ -7,8 +7,9 @@ Automate the
 up to, but not including, **Project Setup**, with two Arch packages:
 
 - `unreal-engine-css-bin`: the prebuilt CSS engine under `/opt/unreal-engine-css`.
-- `satisfactory-modding-setup`: a user-run command that installs MSVC under Wine,
-  registers the engine, and writes the build environment.
+- `satisfactory-modding-setup`: provides `satisfactory-modding setup` to install
+  MSVC under Wine, register the engine, and write the build environment. The CLI
+  also provides `run` to start tools and `doctor` to check the installation.
 
 Rules that hold throughout:
 
@@ -87,13 +88,17 @@ Git history has the details.
 
 - [ ] Both packages build and install with normal Arch tooling.
 - [ ] Engine inputs are pinned and verified, and authenticated downloads work.
-- [ ] One run of `satisfactory-modding-setup` installs the pinned MSVC/SDK,
+- [ ] One run of `satisfactory-modding setup` installs the pinned MSVC/SDK,
   configures `UE_WINE_MSVC`, and registers the engine without prompts.
 - [ ] Repeat setup runs and package upgrade or removal keep unrelated user state.
 - [ ] The docs give a tested path from repository access to the start of
   **Project Setup**.
 
 ## Future
+
+- `satisfactory-modding mod build` will build and package a mod.
+- `satisfactory-modding mod new` will create a mod scaffold.
+- `satisfactory-modding project init` will automate Project Setup as described below.
 
 ### AUR publishing
 
@@ -114,7 +119,7 @@ The manual run on 2026-10-09 answered most feasibility questions. Proposed shape
 
 - A `wwise-cli-bin` package with the pinned release binary. Its upstream repo has
   no license file yet, so ask the author before any AUR release.
-- A user-run `satisfactory-modding-project DIR` command in the setup package. It
+- A user-run `satisfactory-modding project init DIR` command in the setup package. It
   clones the Starter Project if `DIR` does not exist, runs wwise-cli `download`
   and `integrate-ue` with the guide's versions, and checks the result. It takes
   Audiokinetic credentials from `WWISE_EMAIL`/`WWISE_PASSWORD` or asks in the

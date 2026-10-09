@@ -17,7 +17,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 RECIPE = ROOT / "packages/satisfactory-modding-setup"
 loader = importlib.machinery.SourceFileLoader(
-    "setup_cli", str(RECIPE / "satisfactory-modding-setup")
+    "setup_cli", str(RECIPE / "satisfactory-modding")
 )
 spec = importlib.util.spec_from_loader(loader.name, loader)
 cli = importlib.util.module_from_spec(spec)
@@ -515,7 +515,7 @@ class SetupTests(unittest.TestCase):
 
     def test_launcher_arguments_environment_exit_and_help(self):
         cli.setup(self.args)
-        command = ["bash", str(RECIPE / "satisfactory-modding-run")]
+        command = ["python3", str(RECIPE / "satisfactory-modding"), "run"]
         result = subprocess.run(
             command
             + [
@@ -551,7 +551,7 @@ class SetupTests(unittest.TestCase):
     def test_main_defaults_json_and_errors_without_tracebacks(self):
         with (
             patch.object(cli, "setup", return_value={"status": "complete"}) as setup,
-            patch.object(cli.sys, "argv", ["setup", "--json"]),
+            patch.object(cli.sys, "argv", ["satisfactory-modding", "setup", "--json"]),
             patch("builtins.print") as output,
         ):
             self.assertEqual(cli.main(), 0)
@@ -569,7 +569,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(json.loads(output.call_args.args[0]), {"status": "complete"})
         with (
             patch.object(cli, "setup", side_effect=OSError("failed")),
-            patch.object(cli.sys, "argv", ["setup"]),
+            patch.object(cli.sys, "argv", ["satisfactory-modding", "setup"]),
             patch("builtins.print") as output,
         ):
             self.assertEqual(cli.main(), 1)
@@ -589,7 +589,7 @@ class SetupRecipeTests(unittest.TestCase):
                     text=True, capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for text in ("satisfactory-modding-setup --json",
+                for text in ("satisfactory-modding setup --json",
                              "https://visualstudio.microsoft.com/license-terms/",
                              "https://developer.microsoft.com/windows/downloads/windows-sdk/"):
                     self.assertIn(text, result.stdout)
@@ -629,8 +629,7 @@ class SetupRecipeTests(unittest.TestCase):
             pkg.mkdir()
             subprocess.run(["tar", "-xf", str(archive), "-C", str(src)], check=True)
             for name in (
-                "satisfactory-modding-setup",
-                "satisfactory-modding-run",
+                "satisfactory-modding",
                 "LICENSE",
             ):
                 shutil.copyfile(RECIPE / name, src / name)
@@ -669,12 +668,13 @@ class SetupRecipeTests(unittest.TestCase):
                     self.assertEqual(file.read_bytes(), target.read_bytes())
                     self.assertFalse(target.stat().st_mode & 0o022)
             self.assertEqual(
-                (pkg / "usr/bin/satisfactory-modding-setup").stat().st_mode & 0o777,
+                (pkg / "usr/bin/satisfactory-modding").stat().st_mode & 0o777,
                 0o755,
             )
-            self.assertEqual(
-                (pkg / "usr/bin/satisfactory-modding-run").stat().st_mode & 0o777, 0o755
-            )
+            self.assertEqual(sorted(p.name for p in (pkg / "usr/bin").iterdir()), ["satisfactory-modding"])
+            self.assertTrue((pkg / "usr/bin/satisfactory-modding").is_symlink())
+            self.assertEqual(os.readlink(pkg / "usr/bin/satisfactory-modding"),
+                             "../share/satisfactory-modding-setup/satisfactory-modding")
             self.assertTrue(
                 (
                     pkg

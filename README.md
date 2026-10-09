@@ -7,10 +7,10 @@ up to, but not including, **Project Setup**:
 - [unreal-engine-css-bin](packages/unreal-engine-css-bin/README.md) packages the
   prebuilt Coffee Stain Studios (CSS) Unreal Engine under `/opt/unreal-engine-css`.
 - [satisfactory-modding-setup](packages/satisfactory-modding-setup/README.md)
-  adds `satisfactory-modding-setup`, which installs the MSVC toolchain and Windows
+  adds `satisfactory-modding setup`, which installs the MSVC toolchain and Windows
   SDK under Wine for your user and registers the engine, and
-  `satisfactory-modding-run`, which runs a command (such as your IDE) with that
-  environment.
+  `satisfactory-modding run`, which runs a command (such as your IDE) with that
+  environment. `satisfactory-modding doctor` checks the installation.
 
 ## Quick start
 
@@ -64,7 +64,7 @@ Running bootstrap downloads Microsoft build tools. See
 3. Installs the engine, then the setup package, with `sudo pacman -U`.
 4. Adds you to the `unreal-engine-css` group with `sudo gpasswd`, if you are not
    already a member.
-5. Runs `satisfactory-modding-setup` as your user.
+5. Runs `satisfactory-modding setup` as your user.
 
 Unreal's build tools write into the engine folder, so the engine package makes
 `/opt/unreal-engine-css` writable for the `unreal-engine-css` group. The
@@ -83,8 +83,11 @@ To check for a new engine release without changing anything:
 To rerun only the toolchain setup:
 
 ```sh
-satisfactory-modding-setup
+satisfactory-modding setup
 ```
+
+Run `satisfactory-modding doctor` to check engine access, registration, and the
+managed environment when troubleshooting. It does not change files or start Wine.
 
 The package guides cover manual builds. Package install hooks print reminders,
 and the engine hook also creates the `unreal-engine-css` group and gives it the
@@ -119,7 +122,7 @@ the first editor start, has been tested with the packages.
    the MSVC toolchain:
 
    ```sh
-   satisfactory-modding-run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
+   satisfactory-modding run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
    ```
 
    Install the **Unreal Project Model Mods Fix** plugin (by Archengius) from
@@ -145,7 +148,7 @@ The engine loads the MSVC environment itself through `~/.unrealrc`.
 
 If Rider shows **Project 'Engine' load failed** with a permission error in its
 UnrealBuildTool log, you are not in the `unreal-engine-css` group yet, or you have
-not logged in again since joining. Check with `id`.
+not logged in again since joining. Check with `id` and `satisfactory-modding doctor`.
 
 ## Licenses and terms
 
@@ -153,7 +156,7 @@ not logged in again since joining. Check with `id`.
   [Unreal Engine EULA](https://www.unrealengine.com/eula). Access to the source
   repository does not give you the right to redistribute it, so do not publish
   built engine packages.
-- `satisfactory-modding-setup` downloads Microsoft tools under the
+- `satisfactory-modding setup` downloads Microsoft tools under the
   [Visual Studio terms](https://visualstudio.microsoft.com/license-terms/) and the
   [Windows SDK terms](https://developer.microsoft.com/windows/downloads/windows-sdk/).
 

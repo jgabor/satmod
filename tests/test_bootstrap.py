@@ -44,7 +44,7 @@ elif tool == "sudo":
     event = "gpasswd" if args[:1] == ["gpasswd"] else (
         "sudo-check" if args == ["-v"] else (
             "install-engine" if "unreal-engine-css-bin" in args[-1] else "install-setup"))
-elif tool == "satisfactory-modding-setup":
+elif tool == "satisfactory-modding":
     event = "sdk"
 with (root / "events").open("a") as stream:
     stream.write(json.dumps({"event": event, "args": args, "cwd": str(pathlib.Path.cwd()),
@@ -85,14 +85,14 @@ elif tool == "pacman":
 elif tool == "sudo" and event.startswith("install-"):
     assert args[:4] == ["pacman", "-U", "--needed", "--noconfirm"]
     if event == "install-setup":
-        sdk = root / "bin/satisfactory-modding-setup"
+        sdk = root / "bin/satisfactory-modding"
         sdk.write_bytes((root / "bin/makepkg").read_bytes())
         sdk.chmod(0o755)
 elif tool == "sudo" and args[:2] == ["gpasswd", "-a"]:
     assert args == ["gpasswd", "-a", "fixture", "unreal-engine-css"]
     event = "gpasswd"
-elif tool == "satisfactory-modding-setup":
-    assert args == ["--json"]
+elif tool == "satisfactory-modding":
+    assert args == ["setup", "--json"]
     print(os.environ.get("SDK_JSON", '{"status":"complete","reused":true}'))
 else:
     assert tool == "sudo" and args == ["-v"], tool
@@ -263,7 +263,7 @@ class BootstrapTests(unittest.TestCase):
         )
         self.assertIn('"status":"unchanged"', diagnostics)
         sdk = events[-1]
-        self.assertEqual(sdk["args"], ["--json"])
+        self.assertEqual(sdk["args"], ["setup", "--json"])
         self.assertEqual(sdk["uid"], os.geteuid())
         self.assertEqual(sdk["env"]["XDG_DATA_HOME"], self.env["XDG_DATA_HOME"])
         self.assertEqual(sdk["env"]["XDG_CACHE_HOME"], self.env["XDG_CACHE_HOME"])
@@ -380,7 +380,7 @@ class BootstrapTests(unittest.TestCase):
                 self.assertNotIn("-U", sudo[-1]["args"])
                 self.assertEqual(events[-1]["event"], "sudo")
                 self.assertFalse(
-                    (self.root / "bin/satisfactory-modding-setup").exists()
+                    (self.root / "bin/satisfactory-modding").exists()
                 )
                 self.assertFalse(list(self.root.glob(".cache/**/*.pkg.tar.zst")))
                 self.assertFalse(list(config.parent.glob("bootstrap-config-*")))
