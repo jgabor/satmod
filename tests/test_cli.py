@@ -944,6 +944,10 @@ elif name=='wine':
         for kwargs in seen:
             self.assertIsNone(kwargs['stdin'])
             self.assertIs(kwargs['stdout'], kwargs['stderr'])
+            # The prompt asks only for what is missing: the set half goes through, nothing else does.
+            self.assertEqual(kwargs['env']['WWISE_EMAIL'], 'secret@example.com')
+            self.assertFalse(kwargs['env'].get('WWISE_PASSWORD'))
+            self.assertNotIn('WWISE_USER', kwargs['env']); self.assertNotIn('WWISE_PASS', kwargs['env'])
 
     def test_pins_match_manifest_and_bad_args(self):
         manifest = json.loads((RECIPE.parent.parent / 'upstream-inputs.json').read_text())['wwise']
