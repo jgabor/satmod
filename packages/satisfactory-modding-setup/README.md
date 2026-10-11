@@ -54,10 +54,15 @@ with `status`, `project`, and `steps` containing `id`, `status`, and `detail`.
 Child output and diagnostics always go to stderr, including authentication prompts.
 Only stdin is inherited for interactive authentication.
 
-wwise-cli reads `WWISE_EMAIL` and `WWISE_PASSWORD` from the environment. If either
-is missing, it prompts using the terminal for download and integration. Without
-a terminal, both variables are required. Only wwise-cli children receive these
-credentials. The CLI never stores them or adds them to command arguments. Fully completed runs need no credentials.
+wwise-cli reads `WWISE_EMAIL` and `WWISE_PASSWORD` from the environment. The CLI
+also accepts `WWISE_USER` and `WWISE_PASS` as a second pair and uses it when the
+first pair is incomplete. It never combines variables from the two pairs. If
+neither pair is complete, wwise-cli prompts using the terminal for download and
+integration. Without a terminal, the command fails before it runs wwise-cli.
+A file of `NAME="value"` lines has no `export`, so load it with
+`set -a; . path/to/file; set +a`. Only wwise-cli children receive these
+credentials, under wwise-cli's own names. The CLI never stores them or adds them
+to command arguments. Fully completed runs need no credentials.
 
 Install Rider's **Unreal Project Model Mods Fix** plugin and open the project:
 

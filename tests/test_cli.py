@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -12,6 +13,9 @@ import unittest
 from unittest.mock import patch
 
 from test_setup import cli, RECIPE
+
+# Spelled out so a change to the CLI's own list cannot weaken these checks.
+CREDENTIAL_NAMES = ('WWISE_EMAIL', 'WWISE_PASSWORD', 'WWISE_USER', 'WWISE_PASS')
 
 
 class DoctorTests(unittest.TestCase):
@@ -225,14 +229,15 @@ class RunTests(unittest.TestCase):
 
     def test_run_does_not_pass_wwise_credentials(self):
         self.file.write_text('export TEST_SOURCED=yes\n')
-        self.env.update(WWISE_EMAIL='private-email', WWISE_PASSWORD='private-password')
+        self.env.update(WWISE_EMAIL='private-email', WWISE_PASSWORD='private-password',
+                        WWISE_USER='private-user', WWISE_PASS='private-pass')
         result = self.invoke('run', 'python3', '-c',
                              'import os,json; print(json.dumps(dict(os.environ)))')
         self.assertEqual(result.returncode, 0, result.stderr)
         env = json.loads(result.stdout)
         self.assertEqual(env['TEST_SOURCED'], 'yes')
-        self.assertNotIn('WWISE_EMAIL', env)
-        self.assertNotIn('WWISE_PASSWORD', env)
+        for name in CREDENTIAL_NAMES:
+            self.assertNotIn(name, env)
 
     def test_signal_is_preserved(self):
         self.file.write_text('export WINEARCH=win64\n')
@@ -369,7 +374,8 @@ class ModTests(unittest.TestCase):
         startup = self.home / 'startup.sh'
         startup.write_text('export WINEPREFIX=/wrong; export STARTUP_RAN=yes\n')
         with patch.dict(os.environ, {'BASH_ENV': str(startup), 'ENV': str(startup),
-                                     'WWISE_EMAIL': 'private-email', 'WWISE_PASSWORD': 'private-password'}):
+                                     'WWISE_EMAIL': 'private-email', 'WWISE_PASSWORD': 'private-password',
+                                     'WWISE_USER': 'private-user', 'WWISE_PASS': 'private-pass'}):
             result = self.build()
         self.assertEqual(result.returncode, 0, result.stderr)
         summary = json.loads(result.stdout)
@@ -387,10 +393,10 @@ class ModTests(unittest.TestCase):
         self.assertEqual(record['stdin'], '')
         self.assertEqual(record['env']['WINEPREFIX'], '/managed prefix')
         self.assertEqual(record['env']['UE_WINE_MSVC'], '/managed tools')
-        for key in ('BASH_ENV', 'ENV', 'STARTUP_RAN', 'WWISE_EMAIL', 'WWISE_PASSWORD'):
+        for key in ('BASH_ENV', 'ENV', 'STARTUP_RAN', *CREDENTIAL_NAMES):
             self.assertNotIn(key, record['env'])
         editor = json.loads((self.project.parent / 'editor.json').read_text())
-        for key in ('WWISE_EMAIL', 'WWISE_PASSWORD'):
+        for key in CREDENTIAL_NAMES:
             self.assertNotIn(key, editor['env'])
         self.assertIn('fake UAT stdout', result.stderr)
         self.assertIn('fake UAT stderr', result.stderr)
@@ -653,7 +659,8 @@ class ProjectInitTests(unittest.TestCase):
                     b'AudioRouting=Custom\r\n[After]\r\nAudioRouting=Custom\r\n')
         patch.dict(os.environ, {'HOME': str(self.home), 'XDG_CACHE_HOME': str(self.home / 'cache'),
             'XDG_CONFIG_HOME': str(self.home / 'config'), 'WWISE_EMAIL': 'secret@example.com',
-            'WWISE_PASSWORD': 'secret-password', 'BASH_ENV': '/must-not-be-sourced',
+            'WWISE_PASSWORD': 'secret-password', 'WWISE_USER': '', 'WWISE_PASS': '',
+            'BASH_ENV': '/must-not-be-sourced',
             'ENV': '/must-not-be-sourced', 'FIXTURE_HOME': str(self.home)}).start()
         self.record = self.home / 'calls.jsonl'
         (self.home / 'ini').write_bytes(self.ini)
@@ -735,10 +742,12 @@ elif name=='wine':
             self.assertEqual(call['stdin'], '')
             self.assertNotIn('secret', json.dumps(call['argv']))
         for call in calls:
-            for key in ('WWISE_EMAIL', 'WWISE_PASSWORD'):
-                if call['name'] == 'wwise-cli':
-                    self.assertEqual(call['env'][key], os.environ[key])
-                else:
+            if call['name'] == 'wwise-cli':
+                self.assertEqual(call['env']['WWISE_EMAIL'], os.environ['WWISE_EMAIL'])
+                self.assertEqual(call['env']['WWISE_PASSWORD'], os.environ['WWISE_PASSWORD'])
+                self.assertNotIn('WWISE_USER', call['env']); self.assertNotIn('WWISE_PASS', call['env'])
+            else:
+                for key in CREDENTIAL_NAMES:
                     self.assertNotIn(key, call['env'])
         for call in calls[3:]:
             self.assertEqual(call['env']['WINEPREFIX'], '/managed prefix')
@@ -789,6 +798,53 @@ elif name=='wine':
         code, output, error = self.invoke()
         self.assertEqual(code, 1); self.assertIn('Cannot download wwise-cli', error)
         self.assertNotIn('Traceback', error)
+
+    def test_user_and_pass_authenticate_wwise_cli_only(self):
+        alias = {'WWISE_USER': 'alias-user@example.com', 'WWISE_PASS': 'alias-pass'}
+        # An empty or incomplete first pair does not hide a complete second pair.
+        for first in ({'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''},
+                      {'WWISE_EMAIL': 'secret@example.com', 'WWISE_PASSWORD': ''}):
+            with self.subTest(first=first):
+                self.record.unlink(missing_ok=True)
+                shutil.rmtree(self.project, ignore_errors=True)
+                shutil.rmtree(cli.cache_home() / 'wwise-cli', ignore_errors=True)
+                with patch.dict(os.environ, {**first, **alias}):
+                    code, output, error = self.invoke()
+                self.assertEqual(code, 0, error)
+                calls = self.calls()
+                self.assertEqual([c['name'] for c in calls].count('wwise-cli'), 2)
+                for call in calls:
+                    present = sorted(k for k in CREDENTIAL_NAMES if k in call['env'])
+                    if call['name'] == 'wwise-cli':
+                        self.assertEqual(call['stdin'], '')
+                        self.assertEqual(call['env']['WWISE_EMAIL'], 'alias-user@example.com')
+                        self.assertEqual(call['env']['WWISE_PASSWORD'], 'alias-pass')
+                        self.assertEqual(present, ['WWISE_EMAIL', 'WWISE_PASSWORD'])
+                    else:
+                        self.assertEqual(present, [])
+                    self.assertNotIn('alias', json.dumps(call['argv']))
+                self.assertNotIn('alias-', output + error)
+
+    def test_complete_first_pair_wins_over_alias_pair(self):
+        with patch.dict(os.environ, {'WWISE_USER': 'alias-user@example.com', 'WWISE_PASS': 'alias-pass'}):
+            code, output, error = self.invoke()
+        self.assertEqual(code, 0, error)
+        for call in self.calls():
+            if call['name'] == 'wwise-cli':
+                self.assertEqual(call['env']['WWISE_EMAIL'], 'secret@example.com')
+                self.assertEqual(call['env']['WWISE_PASSWORD'], 'secret-password')
+
+    def test_incomplete_pairs_are_not_mixed(self):
+        for env in ({'WWISE_EMAIL': 'secret@example.com', 'WWISE_PASSWORD': '',
+                     'WWISE_USER': 'alias-user@example.com', 'WWISE_PASS': ''},
+                    {'WWISE_EMAIL': '', 'WWISE_PASSWORD': 'secret-password',
+                     'WWISE_USER': '', 'WWISE_PASS': 'alias-pass'}):
+            with self.subTest(env=env), patch.dict(os.environ, env):
+                code, output, error = self.invoke()
+                self.assertEqual(code, 1); self.assertEqual(output, '')
+                self.assertIn('WWISE_USER and WWISE_PASS', error)
+                self.assertNotIn('secret', error); self.assertNotIn('alias-', error)
+        self.assertEqual([c['name'] for c in self.calls()], ['git'])
 
     def test_missing_credentials_non_tty(self):
         for variable in ('WWISE_EMAIL', 'WWISE_PASSWORD'):

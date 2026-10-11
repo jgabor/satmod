@@ -42,6 +42,7 @@ WWISE_SDK_VERSION = "2023.1.14.8770"
 WWISE_INTEGRATION_VERSION = "2023.1.14.3555"
 WWISE_PLUGIN_VERSION = "2023.1.14.8770.3555"
 WWISE_PROJECT_NAME = "SatisfactoryModLoader_WwiseProject"
+WWISE_CREDENTIALS = ("WWISE_EMAIL", "WWISE_PASSWORD", "WWISE_USER", "WWISE_PASS")
 WWISE_PLATFORMS = ("x64_vc160", "x64_vc170", "Linux_x64")
 SOUNDBANK_FILES = ("ProjectInfo.xml", "Windows/Init.bnk", "Windows/Init.txt",
                    "Windows/SoundbanksInfo.xml", "Windows/PluginInfo.xml", "Windows/PlatformInfo.xml")
@@ -75,8 +76,24 @@ def user_file(path):
 
 def child_environment(env=None):
     env = dict(os.environ if env is None else env)
-    env.pop("WWISE_EMAIL", None)
-    env.pop("WWISE_PASSWORD", None)
+    for name in WWISE_CREDENTIALS:
+        env.pop(name, None)
+    return env
+
+
+def wwise_environment(environ):
+    """Environment for wwise-cli, the only child that may see credentials.
+
+    wwise-cli reads WWISE_EMAIL and WWISE_PASSWORD. WWISE_USER and WWISE_PASS are
+    accepted as a second pair, used only when the first pair is incomplete.
+    """
+    env = child_environment(environ)
+    for name in ("WWISE_EMAIL", "WWISE_PASSWORD"):
+        if name in environ:
+            env[name] = environ[name]
+    if (not (env.get("WWISE_EMAIL") and env.get("WWISE_PASSWORD"))
+            and environ.get("WWISE_USER") and environ.get("WWISE_PASS")):
+        env["WWISE_EMAIL"], env["WWISE_PASSWORD"] = environ["WWISE_USER"], environ["WWISE_PASS"]
     return env
 
 def run(argv, env, cwd=None, capture=False):
@@ -635,13 +652,15 @@ def init_project(args):
     record("wwise-cli", status, detail)
     download = not sdk_ready()
     integrate = not integration_ready(project)
-    interactive = not (os.environ.get("WWISE_EMAIL") and os.environ.get("WWISE_PASSWORD"))
+    wwise_env = wwise_environment(os.environ)
+    interactive = not (wwise_env.get("WWISE_EMAIL") and wwise_env.get("WWISE_PASSWORD"))
     if download or integrate:
         require(not interactive or sys.stdin.isatty(),
-                "Set both WWISE_EMAIL and WWISE_PASSWORD for noninteractive Wwise authentication")
+                "Set both WWISE_EMAIL and WWISE_PASSWORD (or WWISE_USER and WWISE_PASS) "
+                "for noninteractive Wwise authentication")
     def wwise(command):
         # Only authentication children inherit the terminal; credentials stay in env.
-        result = subprocess.run([str(executable), *command], env=dict(os.environ),
+        result = subprocess.run([str(executable), *command], env=wwise_env,
                                 stdin=None if interactive else subprocess.DEVNULL,
                                 stdout=sys.stderr, stderr=sys.stderr)
         require(result.returncode == 0, f"wwise-cli {command[0]} failed (exit code {result.returncode})")

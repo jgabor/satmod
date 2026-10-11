@@ -104,8 +104,8 @@ satisfactory-modding project init ~/git/SatisfactoryModLoader
 This clones the Starter Project, downloads the pinned wwise-cli and Wwise SDK,
 integrates Wwise, creates the Wwise project and Windows soundbanks under Wine,
 and sets audio routing. Only the Audiokinetic login needs input. For unattended
-runs, provide `WWISE_EMAIL` and `WWISE_PASSWORD` in the environment. Reruns skip
-completed steps. See the [command details](packages/satisfactory-modding-setup/README.md#initialize-a-project)
+runs, set `WWISE_EMAIL` and `WWISE_PASSWORD` in the environment; `WWISE_USER` and
+`WWISE_PASS` work too. Reruns skip completed steps. See the [command details](packages/satisfactory-modding-setup/README.md#initialize-a-project)
 for cache paths, version pins, and `--wwise-cli` and `--json` options.
 
 Install Rider's **Unreal Project Model Mods Fix** plugin, then open the project:
@@ -184,6 +184,10 @@ directories, so they need no GitHub access and download nothing:
 ```sh
 python3 -m unittest discover -s tests
 ```
+
+Real runs of `project init` need the Audiokinetic login. Copy `.env.example` to
+`.env`, fill it in, and load it with `set -a; . ./.env; set +a`. Git ignores
+`.env`, and the tests never read it.
 
 [TODO.md](TODO.md) tracks open verification work.
 
