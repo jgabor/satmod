@@ -30,26 +30,35 @@ Rules that hold throughout:
 
 Git history has the details.
 
-- **CLI Project Setup (in progress, pkgrel 6 unreleased).** `project init DIR`
+- **CLI Project Setup (pkgrel 6, installed 2026-10-11).** `project init DIR`
   clones the Starter Project, verifies and caches pinned wwise-cli, downloads
   and integrates the guide's distinct SDK and integration versions, creates the
   Wwise project and soundbanks headless under managed Wine, and sets audio
   routing without changing unrelated INI bytes. Fake-tool tests cover retries,
   credentials, downloads, and settings. Audiokinetic login and Rider setup stay
   manual. Version inputs are recorded under `wwise` in upstream-inputs.json.
-  The user verified the real pinned wwise-cli download and checksum, headless
-  Wwise project and soundbank creation under Wine in a scratch project, exactly
-  one changed INI line, and idempotent reruns. Real git clone and wwise-cli SDK
-  download/integration with credentials have not been verified through this command.
+  `WWISE_USER` and `WWISE_PASS` work as a second credential pair.
+  On 2026-10-11 the installed CLI ran `project init` on an empty directory with
+  no terminal input, the login taken from the user's credentials file, and an
+  empty download cache. It did a real git clone, downloaded and verified wwise-cli,
+  downloaded the Wwise SDK, integrated the plugin, and created the Wwise project
+  and soundbanks under the managed Wine prefix. All seven steps reported `done`
+  in about five minutes, and a rerun reported all seven `skipped`. `git diff`
+  showed one changed line (`AudioRouting=Separate`), the generated soundbanks had
+  the same six files as the user's project, and a scan of the logs, caches, and project files
+  found no credentials. The integrated plugin matched the user's apart from build
+  outputs and source files that the project's own WwisePatches change.
 
-- **CLI mod commands (in progress, pkgrel 6 unreleased).** `mod new` scaffolds
+- **CLI mod commands (pkgrel 6, installed 2026-10-11).** `mod new` scaffolds
   Blueprint or C++ library mods from the project's Alpakit templates. `mod build`
   packages Windows client mods and optionally copies them into the detected
   Steam install. On 2026-10-09 `mod build LinuxTestMod` rebuilt the
   editor-created mod headless, and `mod new CliTestMod --cpp` then `mod build
   CliTestMod` compiled it for Linux and Win64, cooked, packaged, and copied it to
   the game. The first attempt showed that cooking needs the mod's Linux editor
-  module, so `mod build` now builds the editor target first.
+  module, so `mod build` now builds the editor target first. On 2026-10-11 the
+  user confirmed that `CliTestMod` loaded in game, then removed it because a friend
+  without the mod could not join their session.
 
 - **First mod (2026-10-09).** With setup pkgrel 5, Alpakit packaged a C++ &
   Blueprint test mod for Windows. The Win64 compile ran through MSVC under Wine,
@@ -101,8 +110,6 @@ Git history has the details.
   release.
 - [ ] Run a fresh bootstrap for a user outside the group, and confirm it adds them
   and asks for a re-login.
-- [ ] Start the game with `CliTestMod` (made by `mod new` and `mod build`) and
-  confirm SML loads it. It is installed in the game's `Mods` folder.
 - [ ] Test package upgrade and removal, and confirm user data survives. Removal
   leaves files the build tools created under `/opt/unreal-engine-css`.
 - [ ] Decide whether to apply the guide's optional UnrealBuildTool patch
@@ -136,8 +143,10 @@ After the completion criteria are met:
 
 ### Project Setup verification
 
-- [ ] Run `project init` on a clean machine, including a real git clone and
-  wwise-cli SDK download/integration with terminal Audiokinetic credentials.
+- [ ] Run `project init` on a clean machine or user account. The 2026-10-11 run
+  reused this machine's Wine prefix and toolchain.
+- [ ] Run `project init` with no credentials in the environment and answer
+  wwise-cli's prompts on a terminal. Only the variable path has run for real.
 - [ ] Verify WwiseConsole project creation and soundbank generation in the
   setup-managed Wine prefix on a clean machine.
 - [ ] Build the initialized project in Rider and load the editor and a packaged

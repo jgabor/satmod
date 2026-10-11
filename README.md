@@ -53,6 +53,9 @@ Running bootstrap downloads Microsoft build tools. See
   run. Sizes vary.
 - The first run downloads about 8 GB of engine archives and takes a long time. If
   you stop bootstrap, run it again: finished downloads and packages are reused.
+- `project init` needs about **15 GB** more: roughly 1.5 GB for the clone, 7 GB for
+  the Wwise download cache, and 7 GB for the integrated Wwise plugin. One run
+  took about five minutes on a fast connection.
 
 ## What bootstrap does
 
@@ -151,7 +154,12 @@ or `--no-copy` to package only. Both commands accept `--project PATH` and
 See the [CLI documentation](packages/satisfactory-modding-setup/README.md#create-a-library-mod)
 for options, outputs, and limits. Both commands were tested on a real Starter
 Project: `mod new --cpp` followed by `mod build` compiled, packaged, and copied a
-new mod into the game without opening the editor.
+new mod into the game, which loaded it, without opening the editor.
+
+SML requires a mod on every player's game unless its descriptor sets
+`RequiredOnRemote` to false. A test mod left in `FactoryGame/Mods` therefore keeps
+friends without it from joining your session. Delete the mod's folder there when
+you are done testing.
 
 ## Licenses and terms
 
