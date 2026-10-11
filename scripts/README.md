@@ -99,7 +99,7 @@ local recipe has edits it does not expect, such as a changed patch or extra
 sources.
 
 The output is one line, such as
-`unchanged: 5.6.1-css-83 (pkgver=5.6.1.css83, pkgrel=3)`. With `--json` it is one
+`unchanged: <tag> (pkgver=<version>, pkgrel=<n>)`. With `--json` it is one
 JSON object instead: `status` (`unchanged`, `updated`, or `update-available`), `changed`,
 `tag`, `pkgver`, and `pkgrel`.
 
