@@ -17,7 +17,7 @@ _commit=61b7cbc8cb9413fec8f0016ef433a90e06c37f54
 source=("msvc-wine-${_commit}.tar.gz::https://codeload.github.com/mircearoata/msvc-wine/tar.gz/${_commit}"
         'satisfactory-modding' 'LICENSE')
 sha256sums=('0747197e8ff04749137978c02bada973c4bad2c6844c48909ae4217086fc7867'
-            '0c283d42a8236862d44da5f15f793983eadf65b7a734ea45b5716aa71e0d1426'
+            'cbd4543658ee9fc2a663acffbcf2c1f2ec0ae894b37051a19ae223b95f31886a'
             '2c50315092a261a88be9569e534c24b56b08606dde657263e8728f711263e58e')
 
 package() {

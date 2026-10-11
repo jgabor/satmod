@@ -803,7 +803,8 @@ elif name=='wine':
         alias = {'WWISE_USER': 'alias-user@example.com', 'WWISE_PASS': 'alias-pass'}
         # An empty or incomplete first pair does not hide a complete second pair.
         for first in ({'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''},
-                      {'WWISE_EMAIL': 'secret@example.com', 'WWISE_PASSWORD': ''}):
+                      {'WWISE_EMAIL': 'secret@example.com', 'WWISE_PASSWORD': ''},
+                      {'WWISE_EMAIL': '', 'WWISE_PASSWORD': 'secret-password'}):
             with self.subTest(first=first):
                 self.record.unlink(missing_ok=True)
                 shutil.rmtree(self.project, ignore_errors=True)
@@ -838,6 +839,11 @@ elif name=='wine':
         for env in ({'WWISE_EMAIL': 'secret@example.com', 'WWISE_PASSWORD': '',
                      'WWISE_USER': 'alias-user@example.com', 'WWISE_PASS': ''},
                     {'WWISE_EMAIL': '', 'WWISE_PASSWORD': 'secret-password',
+                     'WWISE_USER': '', 'WWISE_PASS': 'alias-pass'},
+                    # One variable from each pair is still not a pair.
+                    {'WWISE_EMAIL': '', 'WWISE_PASSWORD': 'secret-password',
+                     'WWISE_USER': 'alias-user@example.com', 'WWISE_PASS': ''},
+                    {'WWISE_EMAIL': 'secret@example.com', 'WWISE_PASSWORD': '',
                      'WWISE_USER': '', 'WWISE_PASS': 'alias-pass'}):
             with self.subTest(env=env), patch.dict(os.environ, env):
                 code, output, error = self.invoke()
@@ -846,6 +852,20 @@ elif name=='wine':
                 self.assertNotIn('secret', error); self.assertNotIn('alias-', error)
         self.assertEqual([c['name'] for c in self.calls()], ['git'])
 
+    def test_noninteractive_wwise_cli_gets_devnull_stdin(self):
+        original = cli.subprocess.run
+        seen = []
+        def execute(argv, **kwargs):
+            if Path(argv[0]).name == 'wwise-cli':
+                seen.append(kwargs.copy())
+            return original(argv, **kwargs)
+        with patch.object(cli.subprocess, 'run', side_effect=execute):
+            code, output, error = self.invoke()
+        self.assertEqual(code, 0, error)
+        self.assertEqual(len(seen), 2)
+        for kwargs in seen:
+            self.assertIs(kwargs['stdin'], subprocess.DEVNULL)
+
     def test_missing_credentials_non_tty(self):
         for variable in ('WWISE_EMAIL', 'WWISE_PASSWORD'):
             with patch.dict(os.environ, {variable: ''}):
@@ -853,6 +873,22 @@ elif name=='wine':
             self.assertEqual(code, 1); self.assertEqual(output, '')
             self.assertIn('WWISE_EMAIL and WWISE_PASSWORD', error)
             self.assertNotIn('Traceback', error)
+        self.assertEqual([c['name'] for c in self.calls()], ['git'])
+
+    def test_closed_stdin_is_not_a_terminal(self):
+        # A parent that closes stdin leaves sys.stdin as None.
+        output = io.StringIO()
+        with tempfile.TemporaryFile(mode='w+') as errors:
+            argv = ['satisfactory-modding', 'project', 'init', str(self.project), '--json']
+            with patch.dict(os.environ, {'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''}), \
+                    patch.object(cli.sys, 'argv', argv), patch.object(cli.sys, 'stdin', None), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                code = cli.main()
+            errors.seek(0)
+            error = errors.read()
+        self.assertEqual(code, 1); self.assertEqual(output.getvalue(), '')
+        self.assertIn('WWISE_USER and WWISE_PASS', error)
+        self.assertNotIn('Traceback', error)
         self.assertEqual([c['name'] for c in self.calls()], ['git'])
 
     def test_wrong_root_path_and_missing_section_key(self):

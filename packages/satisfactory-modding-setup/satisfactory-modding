@@ -655,7 +655,7 @@ def init_project(args):
     wwise_env = wwise_environment(os.environ)
     interactive = not (wwise_env.get("WWISE_EMAIL") and wwise_env.get("WWISE_PASSWORD"))
     if download or integrate:
-        require(not interactive or sys.stdin.isatty(),
+        require(not interactive or (sys.stdin is not None and sys.stdin.isatty()),
                 "Set both WWISE_EMAIL and WWISE_PASSWORD (or WWISE_USER and WWISE_PASS) "
                 "for noninteractive Wwise authentication")
     def wwise(command):
