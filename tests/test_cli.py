@@ -801,15 +801,18 @@ elif name=='wine':
 
     def test_user_and_pass_authenticate_wwise_cli_only(self):
         alias = {'WWISE_USER': 'alias-user@example.com', 'WWISE_PASS': 'alias-pass'}
-        # An empty or incomplete first pair does not hide a complete second pair.
-        for first in ({'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''},
+        # An unset, empty, or incomplete first pair does not hide a complete second pair.
+        for first in ({'WWISE_EMAIL': None, 'WWISE_PASSWORD': None},
+                      {'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''},
                       {'WWISE_EMAIL': 'secret@example.com', 'WWISE_PASSWORD': ''},
                       {'WWISE_EMAIL': '', 'WWISE_PASSWORD': 'secret-password'}):
             with self.subTest(first=first):
                 self.record.unlink(missing_ok=True)
                 shutil.rmtree(self.project, ignore_errors=True)
                 shutil.rmtree(cli.cache_home() / 'wwise-cli', ignore_errors=True)
-                with patch.dict(os.environ, {**first, **alias}):
+                with patch.dict(os.environ, {**{k: v for k, v in first.items() if v is not None}, **alias}):
+                    for name in [k for k, v in first.items() if v is None]:
+                        del os.environ[name]
                     code, output, error = self.invoke()
                 self.assertEqual(code, 0, error)
                 calls = self.calls()
