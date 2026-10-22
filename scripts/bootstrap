@@ -130,10 +130,10 @@ def bootstrap():
         run(["sudo", "gpasswd", "-a", user.pw_name, "unreal-engine-css"], sudo=True)
     # The group database can be current while this login session still predates it.
     relogin_required = group.gr_gid not in os.getgroups() and group.gr_gid != os.getgid()
-    packages.append(package("satisfactory-modding"))
-    if shutil.which("satisfactory-modding") is None:
-        raise BootstrapError("installed satisfactory-modding is not on PATH")
-    output = run(["satisfactory-modding", "setup", "--json"], capture=True)
+    packages.append(package("satmod"))
+    if shutil.which("satmod") is None:
+        raise BootstrapError("installed satmod is not on PATH")
+    output = run(["satmod", "setup", "--json"], capture=True)
     try:
         setup = json.loads(output)
     except ValueError as error:

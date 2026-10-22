@@ -30,9 +30,9 @@ TOOLS = ("python3", "bash", "wine", "wineserver", "msiextract", "git", "perl", "
          "dos2unix", "find", "sed", "awk", "xargs", "sha256sum", "patch")
 SELECTION = {"msvc-version": "17.8", "sdk-version": "10.0.22621",
              "channel": "release.ltsc.17.8"}
-MARKER = ".satisfactory-modding.json"
-MSVCENV_BEGIN = "# BEGIN satisfactory-modding-setup"
-MSVCENV_END = "# END satisfactory-modding-setup"
+MARKER = ".satmod.json"
+MSVCENV_BEGIN = "# BEGIN satmod"
+MSVCENV_END = "# END satmod"
 GIT = "git"
 WINE = "wine"
 WINEPATH = "winepath"
@@ -256,7 +256,7 @@ def configure(home, config, root, prefix):
     text = rc.read_text() if rc.exists() else ""
     # Replace our own hook if XDG_CONFIG_HOME changed; leave all other hooks intact.
     lines = [s for s in text.splitlines(keepends=True)
-             if not s.rstrip().endswith("# satisfactory-modding-setup")]
+             if not s.rstrip().endswith("# satmod")]
     text = "".join(lines)
     rc.write_text(text + ("\n" if text and not text.endswith("\n") else "") + line + "\n")
     rc.chmod(0o600)
@@ -280,7 +280,7 @@ def setup(args):
     for a, b in ((root, cache), (root, prefix), (cache, prefix)):
         require(a != b and a not in b.parents and b not in a.parents,
                 "Toolchain, cache, and Wine prefix must be separate locations")
-    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config").resolve() / "satisfactory-modding"
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config").resolve() / "satmod"
     user_location(config)
     user_file(config / "environment.sh")
     user_file(home / ".unrealrc")
@@ -349,27 +349,27 @@ def setup(args):
 
 def environment_file():
     home = Path.home()
-    return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "satisfactory-modding/environment.sh"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "satmod/environment.sh"
 
 def environment_text(root, prefix):
-    return ("# Managed by satisfactory-modding-setup\n"
+    return ("# Managed by satmod\n"
             f"export UE_WINE_MSVC={shlex.quote(str(root))}\n"
             f"export WINEPREFIX={shlex.quote(str(prefix))}\n"
             "export WINEARCH=win64\n")
 
 def hook_line(file):
-    return f"[ ! -f {shlex.quote(str(file))} ] || . {shlex.quote(str(file))} # satisfactory-modding-setup"
+    return f"[ ! -f {shlex.quote(str(file))} ] || . {shlex.quote(str(file))} # satmod"
 
 def launch(command):
     if command and command[0] == "--":
         command = command[1:]
     if not command:
-        print("satisfactory-modding run: supply a command (see run --help)", file=sys.stderr)
+        print("satmod run: supply a command (see run --help)", file=sys.stderr)
         return 2
     file = environment_file()
-    require(file.is_file(), f"Missing {file}; run satisfactory-modding setup first")
+    require(file.is_file(), f"Missing {file}; run satmod setup first")
     os.execvpe("bash", ["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
-                        "satisfactory-modding run", str(file), *command], child_environment())
+                        "satmod run", str(file), *command], child_environment())
 
 def project_file(path=None):
     if path:
@@ -511,7 +511,7 @@ def uat_arguments(project, ref, game=None):
 
 def managed_command(command, cwd, capture=False, name="Command", extra_env=None):
     file = environment_file()
-    require(file.is_file(), f"Missing {file}; run satisfactory-modding setup first")
+    require(file.is_file(), f"Missing {file}; run satmod setup first")
     env = child_environment()
     env.pop("BASH_ENV", None)
     env.pop("ENV", None)
@@ -520,7 +520,7 @@ def managed_command(command, cwd, capture=False, name="Command", extra_env=None)
     if extra_env:
         command = ["env", *[f"{key}={value}" for key, value in extra_env.items()], *command]
     result = subprocess.run(["bash", "-e", "-c", '. "$1"; shift; exec -- "$@"',
-                             "satisfactory-modding mod build", str(file), *command],
+                             "satmod mod build", str(file), *command],
                             env=env, cwd=cwd, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE if capture else sys.stderr,
                             stderr=sys.stderr, text=capture)
@@ -610,7 +610,7 @@ def obtain_wwise_cli(explicit=None):
         path = Path(explicit).expanduser().resolve()
         require(path.is_file() and os.access(path, os.X_OK), f"Not an executable wwise-cli: {path}")
         return path, "skipped", "using supplied executable"
-    path = cache_home() / "satisfactory-modding/wwise-cli" / WWISE_CLI_VERSION / "wwise-cli"
+    path = cache_home() / "satmod/wwise-cli" / WWISE_CLI_VERSION / "wwise-cli"
     if verified_wwise_cli(path):
         path.chmod(0o755)
         return path, "skipped", "verified cached executable"
@@ -889,7 +889,7 @@ def build_mod(args):
             "Satisfactory Steam install not found; pass --game DIR or --no-copy")
     require(game is None or game.is_dir(), f"Missing game directory: {game}")
     file = environment_file()
-    require(file.is_file(), f"Missing {file}; run satisfactory-modding setup first")
+    require(file.is_file(), f"Missing {file}; run satmod setup first")
     editor = editor_build_arguments(project)
     argv = uat_arguments(project, plugin.stem, game)
     for command in (editor, argv):
@@ -983,7 +983,7 @@ def doctor():
         try:
             status, message = action()
         except (OSError, ValueError, TypeError, KeyError, SetupError, configparser.Error) as error:
-            status, message = "fail", f"{error}; run satisfactory-modding setup"
+            status, message = "fail", f"{error}; run satmod setup"
         checks.append({"id": id, "status": status, "message": " ".join(message.splitlines())})
 
     check("engine", lambda: ("ok", f"Engine exists: {ENGINE / 'Engine'}")
@@ -1043,7 +1043,7 @@ def doctor():
         content = (root / "bin/x64/msvcenv.sh").read_text()
         require(content.count(MSVCENV_BEGIN) == content.count(MSVCENV_END) == 1 and
                 content.endswith(managed_msvcenv_block(prefix)), "Missing or mismatched managed Wine prefix block")
-        return "ok", "Toolchain marker and prefix match; run satisfactory-modding setup for full revalidation"
+        return "ok", "Toolchain marker and prefix match; run satmod setup for full revalidation"
     check("toolchain", toolchain)
     def unrealrc():
         require(hook_line(file) in (home / ".unrealrc").read_text().splitlines(),
@@ -1055,16 +1055,16 @@ def doctor():
         conflict = inherited is not None and (not paths or inherited != str(paths["prefix"]))
         if conflict or "BASH_ENV" in os.environ:
             return "warn", ("WINEPREFIX differs or BASH_ENV is set; wrappers pin the prefix, but other tools outside "
-                            "satisfactory-modding run may use the wrong prefix; unset WINEPREFIX and BASH_ENV or use satisfactory-modding run")
+                            "satmod run may use the wrong prefix; unset WINEPREFIX and BASH_ENV or use satmod run")
         return "ok", "No conflicting WINEPREFIX or BASH_ENV"
     check("wineprefix-env", wineprefix_env)
     return {"status": "fail" if any(c["status"] == "fail" for c in checks) else "ok", "checks": checks}
 
 def main():
     home = Path.home()
-    data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "satisfactory-modding"
-    cache = Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache") / "satisfactory-modding/msvc-wine"
-    parser = argparse.ArgumentParser(prog="satisfactory-modding", description="Set up, run, and check the modding environment.")
+    data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share") / "satmod"
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache") / "satmod/msvc-wine"
+    parser = argparse.ArgumentParser(prog="satmod", description="Set up, run, and check the modding environment.")
     commands = parser.add_subparsers(dest="subcommand")
     setup_parser = commands.add_parser("setup", help="install or revalidate the pinned MSVC/SDK; never prompts")
     setup_parser.add_argument("--toolchain", default=str(data / "msvc"))
@@ -1129,7 +1129,7 @@ def main():
             else:
                 decisions = "; ".join(f"{s['id']}: {s['status']} ({s['detail']})" for s in result["steps"])
                 print(f"Project complete: {result['project']}; {decisions}; manual: install Rider plugin "
-                      '\"Unreal Project Model Mods Fix\"; open with satisfactory-modding run rider ' +
+                      '\"Unreal Project Model Mods Fix\"; open with satmod run rider ' +
                       shlex.quote(str(Path(result["project"]) / "FactoryGame.uproject")) +
                       "; mod new and mod build are available")
             return 0
@@ -1146,7 +1146,7 @@ def main():
             return 0
         result = setup(args)
     except (SetupError, OSError, ValueError, TypeError, KeyError, configparser.Error) as error:
-        print(f"satisfactory-modding: {error}", file=sys.stderr)
+        print(f"satmod: {error}", file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True) if args.json else
           f"Setup complete: {result['toolchain']} ({result['registration']})")

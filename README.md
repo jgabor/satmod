@@ -6,11 +6,11 @@ through command-line **Project Setup**:
 
 - [unreal-engine-css-bin](packages/unreal-engine-css-bin/README.md) packages the
   prebuilt Coffee Stain Studios (CSS) Unreal Engine under `/opt/unreal-engine-css`.
-- [satisfactory-modding](packages/satisfactory-modding/README.md)
-  adds `satisfactory-modding setup`, which installs the MSVC toolchain and Windows
+- [satmod](packages/satmod/README.md)
+  adds `satmod setup`, which installs the MSVC toolchain and Windows
   SDK under Wine for your user and registers the engine, and
-  `satisfactory-modding run`, which runs a command (such as your IDE) with that
-  environment. `satisfactory-modding doctor` checks the installation.
+  `satmod run`, which runs a command (such as your IDE) with that
+  environment. `satmod doctor` checks the installation.
 
 ## Quick start
 
@@ -67,10 +67,10 @@ Running bootstrap downloads Microsoft build tools. See
    `git status` shows them as modified.
 2. Builds each package with `makepkg`, unless a matching package is already in
    `.cache/`.
-3. Installs the engine, then `satisfactory-modding`, with `sudo pacman -U`.
+3. Installs the engine, then `satmod`, with `sudo pacman -U`.
 4. Adds you to the `unreal-engine-css` group with `sudo gpasswd`, if you are not
    already a member.
-5. Runs `satisfactory-modding setup` as your user.
+5. Runs `satmod setup` as your user.
 
 Unreal's build tools write into the engine folder, so the engine package makes
 `/opt/unreal-engine-css` writable for the `unreal-engine-css` group. The
@@ -89,10 +89,10 @@ To check for a new engine release without changing anything:
 To rerun only the toolchain setup:
 
 ```sh
-satisfactory-modding setup
+satmod setup
 ```
 
-Run `satisfactory-modding doctor` to check engine access, registration, and the
+Run `satmod doctor` to check engine access, registration, and the
 managed environment when troubleshooting. It does not change files or start Wine.
 
 The package guides cover manual builds. Package install hooks print reminders,
@@ -104,25 +104,25 @@ engine files. Hooks never download tools, set up Wine, or change your account.
 After toolchain setup, run:
 
 ```sh
-satisfactory-modding project init ~/git/SatisfactoryModLoader
+satmod project init ~/git/SatisfactoryModLoader
 ```
 
 This clones the Starter Project, downloads the pinned wwise-cli and Wwise SDK,
 integrates Wwise, creates the Wwise project and Windows soundbanks under Wine,
 and sets audio routing. Only the Audiokinetic login needs input. For unattended
 runs, set `WWISE_EMAIL` and `WWISE_PASSWORD` in the environment; `WWISE_USER` and
-`WWISE_PASS` work too. Reruns skip completed steps. See the [command details](packages/satisfactory-modding/README.md#initialize-a-project)
+`WWISE_PASS` work too. Reruns skip completed steps. See the [command details](packages/satmod/README.md#initialize-a-project)
 for cache paths, version pins, and `--wwise-cli` and `--json` options.
 
-When upstream SML moves on, `satisfactory-modding project update
+When upstream SML moves on, `satmod project update
 ~/git/SatisfactoryModLoader` fast-forwards the project and updates Wwise to the
 versions the new commit needs. It stops without changing anything if you have
-local commits or changes of your own. See [update a project](packages/satisfactory-modding/README.md#update-a-project).
+local commits or changes of your own. See [update a project](packages/satmod/README.md#update-a-project).
 
 Install Rider's **Unreal Project Model Mods Fix** plugin, then open the project:
 
 ```sh
-satisfactory-modding run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
+satmod run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
 ```
 
 Compile with **Development**, **Editor**, and **Linux** selected, then open the
@@ -143,15 +143,15 @@ empty directory and matched the manual result.
 
 If Rider shows **Project 'Engine' load failed** with a permission error in its
 UnrealBuildTool log, you are not in the `unreal-engine-css` group yet, or you have
-not logged in again since joining. Check with `id` and `satisfactory-modding doctor`.
+not logged in again since joining. Check with `id` and `satmod doctor`.
 
 ## Build mods from the command line
 
 After Project Setup, run from the Starter Project:
 
 ```sh
-satisfactory-modding mod new MyMod --cpp
-satisfactory-modding mod build MyMod
+satmod mod new MyMod --cpp
+satmod mod build MyMod
 ```
 
 `mod new` creates a library mod from Alpakit's templates; omit `--cpp` for
@@ -160,7 +160,7 @@ builds and packages a Windows client mod and copies it into the Steam install,
 which it detects automatically. Use `--game DIR` to choose the game directory,
 or `--no-copy` to package only. Both commands accept `--project PATH` and
 `--json`. Archives land in `Saved/ArchivedPlugins/REF/REF-Windows.zip`.
-See the [CLI documentation](packages/satisfactory-modding/README.md#create-a-library-mod)
+See the [CLI documentation](packages/satmod/README.md#create-a-library-mod)
 for options, outputs, and limits. Both commands were tested on a real Starter
 Project: `mod new --cpp` followed by `mod build` compiled, packaged, and copied a
 new mod into the game, which loaded it, without opening the editor.
@@ -176,21 +176,21 @@ you are done testing.
   [Unreal Engine EULA](https://www.unrealengine.com/eula). Access to the source
   repository does not give you the right to redistribute it, so do not publish
   built engine packages.
-- `satisfactory-modding setup` downloads Microsoft tools under the
+- `satmod setup` downloads Microsoft tools under the
   [Visual Studio terms](https://visualstudio.microsoft.com/license-terms/) and the
   [Windows SDK terms](https://developer.microsoft.com/windows/downloads/windows-sdk/).
 
 ## Uninstall
 
 ```sh
-sudo pacman -Rns satisfactory-modding unreal-engine-css-bin
+sudo pacman -Rns satmod unreal-engine-css-bin
 ```
 
-To keep the engine, remove only `satisfactory-modding`.
+To keep the engine, remove only `satmod`.
 
 Removing the packages leaves your toolchain, download cache, Wine prefix,
 environment file, `~/.unrealrc` entry, and engine registration in place. The
-[setup guide](packages/satisfactory-modding/README.md#remove-user-data)
+[setup guide](packages/satmod/README.md#remove-user-data)
 lists them.
 
 ## Development

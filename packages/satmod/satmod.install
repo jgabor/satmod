@@ -3,7 +3,7 @@
 post_install() {
     printf '%s\n' \
         'Run as your ordinary user (not with sudo) to install or check the MSVC toolchain:' \
-        '  satisfactory-modding setup --json' \
+        '  satmod setup --json' \
         'This downloads Microsoft MSVC/Windows SDK tools under their license terms:' \
         'https://visualstudio.microsoft.com/license-terms/ and https://developer.microsoft.com/windows/downloads/windows-sdk/' || :
     return 0

@@ -20,14 +20,14 @@ password.
    This always runs, so bootstrap needs a working `gh` login and network access
    even when every package is cached. If a new release has come out, a rerun
    picks it up and builds it.
-3. For the engine and then `satisfactory-modding`: reuses the package in `.cache/` if
+3. For the engine and then `satmod`: reuses the package in `.cache/` if
    one with the expected name, version, and architecture exists. Otherwise it
    builds one with `makepkg --syncdeps`. Then it installs it with
    `sudo pacman -U --needed`.
 4. Right after the engine is installed, adds you to the `unreal-engine-css` group
    with `sudo gpasswd -a`, unless you are already a member. The group can write
    to the engine, which Unreal's build tools need.
-5. Runs `satisfactory-modding setup --json` as your user.
+5. Runs `satmod setup --json` as your user.
 
 If your current login does not have the group yet, bootstrap tells you to log out
 and back in before you open the project in an IDE. Setup itself does not need
@@ -44,7 +44,7 @@ in `.cache/`.
 | --- | --- |
 | `.cache/engine-recipe/sources/` | Engine archive parts |
 | `.cache/engine-recipe/packages/` | Built engine packages |
-| `.cache/upstream/msvc-wine/` | `msvc-wine` snapshot and built `satisfactory-modding` packages |
+| `.cache/upstream/msvc-wine/` | `msvc-wine` snapshot and built `satmod` packages |
 | `.cache/*-recipe/{build,logs,tmp}/` | makepkg working directories |
 | `.cache/*-recipe/makepkg.conf` | Created on first run. Edit it to change build settings, such as compression. |
 
@@ -68,7 +68,7 @@ one JSON object on stdout, and build logs go to stderr:
 `unreal-engine-css` group yet.
 
 On failure, `--json` prints `{"status": "error", "error": "..."}`. The `setup`
-object is the output of `satisfactory-modding setup --json`.
+object is the output of `satmod setup --json`.
 
 ## update-engine-release
 

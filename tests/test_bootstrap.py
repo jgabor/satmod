@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = "unreal-engine-css-bin"
-SETUP = "satisfactory-modding"
+SETUP = "satmod"
 
 STUB = r"""
 import json, os, pathlib, subprocess, sys
@@ -44,7 +44,7 @@ elif tool == "sudo":
     event = "gpasswd" if args[:1] == ["gpasswd"] else (
         "sudo-check" if args == ["-v"] else (
             "install-engine" if "unreal-engine-css-bin" in args[-1] else "install-setup"))
-elif tool == "satisfactory-modding":
+elif tool == "satmod":
     event = "sdk"
 with (root / "events").open("a") as stream:
     stream.write(json.dumps({"event": event, "args": args, "cwd": str(pathlib.Path.cwd()),
@@ -77,7 +77,7 @@ if tool == "makepkg":
         print("build diagnostic")
 elif tool == "pacman":
     assert args[0] == "-Qip"
-    name = "unreal-engine-css-bin" if "unreal-engine-css-bin" in args[1] else "satisfactory-modding"
+    name = "unreal-engine-css-bin" if "unreal-engine-css-bin" in args[1] else "satmod"
     version = "5.6.1.css83-3" if name == "unreal-engine-css-bin" else "1.0.0-3"
     print("Name : " + ("wrong" if os.environ.get("BAD_NAME") else name))
     print("Version : " + ("0-1" if os.environ.get("BAD_VERSION") else version))
@@ -85,13 +85,13 @@ elif tool == "pacman":
 elif tool == "sudo" and event.startswith("install-"):
     assert args[:4] == ["pacman", "-U", "--needed", "--noconfirm"]
     if event == "install-setup":
-        sdk = root / "bin/satisfactory-modding"
+        sdk = root / "bin/satmod"
         sdk.write_bytes((root / "bin/makepkg").read_bytes())
         sdk.chmod(0o755)
 elif tool == "sudo" and args[:2] == ["gpasswd", "-a"]:
     assert args == ["gpasswd", "-a", "fixture", "unreal-engine-css"]
     event = "gpasswd"
-elif tool == "satisfactory-modding":
+elif tool == "satmod":
     assert args == ["setup", "--json"]
     print(os.environ.get("SDK_JSON", '{"status":"complete","reused":true}'))
 else:
@@ -380,7 +380,7 @@ class BootstrapTests(unittest.TestCase):
                 self.assertNotIn("-U", sudo[-1]["args"])
                 self.assertEqual(events[-1]["event"], "sudo")
                 self.assertFalse(
-                    (self.root / "bin/satisfactory-modding").exists()
+                    (self.root / "bin/satmod").exists()
                 )
                 self.assertFalse(list(self.root.glob(".cache/**/*.pkg.tar.zst")))
                 self.assertFalse(list(config.parent.glob("bootstrap-config-*")))

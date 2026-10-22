@@ -7,7 +7,7 @@ Automate the
 through command-line **Project Setup**, with two Arch packages:
 
 - `unreal-engine-css-bin`: the prebuilt CSS engine under `/opt/unreal-engine-css`.
-- `satisfactory-modding`: provides `satisfactory-modding setup` to install
+- `satmod`: provides `satmod setup` to install
   MSVC under Wine, register the engine, and write the build environment. The CLI
   also provides `project init` for Starter Project and Wwise setup, `run` to
   start tools, `doctor` to check the installation, and `mod new` and `mod build`
@@ -228,7 +228,7 @@ in as issues.
 - [x] Both packages build and install with normal Arch tooling. Built and
   installed on this machine, and built in a clean Arch chroot on 2026-10-22.
 - [x] Engine inputs are pinned and verified, and authenticated downloads work.
-- [x] One run of `satisfactory-modding setup` installs the pinned MSVC/SDK,
+- [x] One run of `satmod setup` installs the pinned MSVC/SDK,
   configures `UE_WINE_MSVC`, and registers the engine without prompts. Based on
   the user's report.
 - [x] Repeat setup runs and package upgrade or removal keep unrelated user state.
@@ -260,13 +260,22 @@ After the completion criteria are met:
     guidelines allow `/opt` for a directory a group writes into, which is this
     design. `vercmp` orders `5.6.1.css83` before `css84`, `css100`, and later
     engine versions.
-  - `satisfactory-modding-setup`: built from pinned sources, so no suffix. It
-    does not collide with the `satisfactory-mod-manager*` packages.
+  - `satisfactory-modding-setup` (now `satmod`): built from pinned sources, so
+    no suffix. It does not collide with the `satisfactory-mod-manager*` packages.
 - [x] Rename `satisfactory-modding-setup` to `satisfactory-modding`, matching its
   command, and fix its metadata (1.0.0-1). `pkgdesc` now covers Project Setup and
   mod builds, and `url` is this repository. The markers the CLI writes into
-  `~/.unrealrc`, the environment file, and the toolchain's `msvcenv.sh` keep the
-  old name, so existing setups stay valid without a migration.
+  `~/.unrealrc`, the environment file, and the toolchain's `msvcenv.sh` kept the
+  old name.
+- [x] Rename package, command, and GitHub repo to `satmod` (1.0.0-1), before
+  anything is published. Everything follows, with no migration code: the
+  recipe at `packages/satmod`, `/usr/bin/satmod`, `/usr/share/satmod`, the user
+  folders `~/.config/satmod`, `~/.local/share/satmod`, and `~/.cache/satmod`, the
+  `.satmod.json` markers, and the `# satmod` markers in `~/.unrealrc`, the
+  environment file, and `msvcenv.sh`. This machine was migrated by hand. The
+  name is free in the AUR, the official repositories, and on GitHub. msvc-wine
+  stays bundled: `msvc-wine-git` tracks a different, unpinned upstream and
+  installs a system-wide MSVC during makepkg.
 - [ ] Create one AUR repository per package with its `.SRCINFO`, license, and
   helper files. Never publish engine archives, Microsoft tools, or built packages.
 - [ ] Explain the authenticated download and license terms on each package page.

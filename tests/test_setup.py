@@ -15,9 +15,9 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-RECIPE = ROOT / "packages/satisfactory-modding"
+RECIPE = ROOT / "packages/satmod"
 loader = importlib.machinery.SourceFileLoader(
-    "setup_cli", str(RECIPE / "satisfactory-modding")
+    "setup_cli", str(RECIPE / "satmod")
 )
 spec = importlib.util.spec_from_loader(loader.name, loader)
 cli = importlib.util.module_from_spec(spec)
@@ -58,7 +58,7 @@ class SetupTests(unittest.TestCase):
         patch.object(cli, "SOURCE", self.source).start()
         patch.object(cli, "ENGINE", self.engine).start()
         self.args = argparse.Namespace(
-            toolchain=str(self.home / "data/satisfactory-modding/msvc"),
+            toolchain=str(self.home / "data/satmod/msvc"),
             cache=str(self.home / "cache with spaces/msvc-wine"),
             wineprefix=str(self.home / "prefix with spaces"),
         )
@@ -259,7 +259,7 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(env["WINEARCH"], "win64")
         self.assertFalse((self.home / ".wine").exists())
         self.assertIn("# existing\nexport CUSTOM='yes'\n", rc.read_text())
-        self.assertEqual(rc.read_text().count("# satisfactory-modding-setup"), 1)
+        self.assertEqual(rc.read_text().count("# satmod"), 1)
         self.assertFalse((self.home / "config with spaces/Epic").exists())
         self.assertEqual((Path(result["environment"]).stat().st_mode & 0o777), 0o600)
         marker = Path(self.args.toolchain) / cli.MARKER
@@ -276,7 +276,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn("configured", json.loads(marker.read_text()))
         self.assertFalse(any(a[0] in ("python3", "wine") for a, _ in self.calls))
         self.assertFalse(any("UnrealVersionSelector" in a[0] for a, _ in self.calls))
-        self.assertEqual(rc.read_text().count("# satisfactory-modding-setup"), 1)
+        self.assertEqual(rc.read_text().count("# satmod"), 1)
         result = subprocess.run(
             [
                 "bash",
@@ -424,7 +424,7 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(
             rc.read_text().startswith(". /intentional/custom/environment\n")
         )
-        self.assertEqual(rc.read_text().count("# satisfactory-modding-setup"), 1)
+        self.assertEqual(rc.read_text().count("# satmod"), 1)
         self.assertIn(shlex.quote(result["environment"]), rc.read_text())
         self.assertEqual((project / ".unrealrc").read_text(), "# project override\n")
 
@@ -515,7 +515,7 @@ class SetupTests(unittest.TestCase):
 
     def test_launcher_arguments_environment_exit_and_help(self):
         cli.setup(self.args)
-        command = ["python3", str(RECIPE / "satisfactory-modding"), "run"]
+        command = ["python3", str(RECIPE / "satmod"), "run"]
         result = subprocess.run(
             command
             + [
@@ -551,25 +551,25 @@ class SetupTests(unittest.TestCase):
     def test_main_defaults_json_and_errors_without_tracebacks(self):
         with (
             patch.object(cli, "setup", return_value={"status": "complete"}) as setup,
-            patch.object(cli.sys, "argv", ["satisfactory-modding", "setup", "--json"]),
+            patch.object(cli.sys, "argv", ["satmod", "setup", "--json"]),
             patch("builtins.print") as output,
         ):
             self.assertEqual(cli.main(), 0)
         args = setup.call_args.args[0]
         self.assertEqual(
-            args.toolchain, str(self.home / "data/satisfactory-modding/msvc")
+            args.toolchain, str(self.home / "data/satmod/msvc")
         )
         self.assertEqual(
             args.cache,
-            str(self.home / "cache with spaces/satisfactory-modding/msvc-wine"),
+            str(self.home / "cache with spaces/satmod/msvc-wine"),
         )
         self.assertEqual(
-            args.wineprefix, str(self.home / "data/satisfactory-modding/wineprefix")
+            args.wineprefix, str(self.home / "data/satmod/wineprefix")
         )
         self.assertEqual(json.loads(output.call_args.args[0]), {"status": "complete"})
         with (
             patch.object(cli, "setup", side_effect=OSError("failed")),
-            patch.object(cli.sys, "argv", ["satisfactory-modding", "setup"]),
+            patch.object(cli.sys, "argv", ["satmod", "setup"]),
             patch("builtins.print") as output,
         ):
             self.assertEqual(cli.main(), 1)
@@ -583,13 +583,13 @@ class SetupRecipeTests(unittest.TestCase):
             with self.subTest(hook=hook), tempfile.TemporaryDirectory() as temp:
                 result = subprocess.run(
                     ["bash", "-c", 'source "$1"; "$2"', "notice",
-                     str(RECIPE / "satisfactory-modding.install"), hook],
+                     str(RECIPE / "satmod.install"), hook],
                     env=dict(os.environ, HOME=str(Path(temp) / "nonexistent"),
                              SUDO_USER="nonexistent-satisfactory-user", BASH_ENV="/dev/null"),
                     text=True, capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for text in ("satisfactory-modding setup --json",
+                for text in ("satmod setup --json",
                              "https://visualstudio.microsoft.com/license-terms/",
                              "https://developer.microsoft.com/windows/downloads/windows-sdk/"):
                     self.assertIn(text, result.stdout)
@@ -629,7 +629,7 @@ class SetupRecipeTests(unittest.TestCase):
             pkg.mkdir()
             subprocess.run(["tar", "-xf", str(archive), "-C", str(src)], check=True)
             for name in (
-                "satisfactory-modding",
+                "satmod",
                 "LICENSE",
             ):
                 shutil.copyfile(RECIPE / name, src / name)
@@ -643,7 +643,7 @@ class SetupRecipeTests(unittest.TestCase):
                 check=True,
             )
             upstream = src / f"msvc-wine-{cli.PIN}"
-            installed = pkg / "usr/share/satisfactory-modding/msvc-wine"
+            installed = pkg / "usr/share/satmod/msvc-wine"
             # Everything but msvc-wine's own tests and Dockerfiles ships.
             shipped = [
                 p for p in upstream.rglob("*")
@@ -674,17 +674,17 @@ class SetupRecipeTests(unittest.TestCase):
                     self.assertEqual(file.read_bytes(), target.read_bytes())
                     self.assertFalse(target.stat().st_mode & 0o022)
             self.assertEqual(
-                (pkg / "usr/bin/satisfactory-modding").stat().st_mode & 0o777,
+                (pkg / "usr/bin/satmod").stat().st_mode & 0o777,
                 0o755,
             )
-            self.assertEqual(sorted(p.name for p in (pkg / "usr/bin").iterdir()), ["satisfactory-modding"])
-            self.assertTrue((pkg / "usr/bin/satisfactory-modding").is_symlink())
-            self.assertEqual(os.readlink(pkg / "usr/bin/satisfactory-modding"),
-                             "../share/satisfactory-modding/satisfactory-modding")
+            self.assertEqual(sorted(p.name for p in (pkg / "usr/bin").iterdir()), ["satmod"])
+            self.assertTrue((pkg / "usr/bin/satmod").is_symlink())
+            self.assertEqual(os.readlink(pkg / "usr/bin/satmod"),
+                             "../share/satmod/satmod")
             self.assertTrue(
                 (
                     pkg
-                    / "usr/share/licenses/satisfactory-modding/msvc-wine-LICENSE.txt"
+                    / "usr/share/licenses/satmod/msvc-wine-LICENSE.txt"
                 ).exists()
             )
 

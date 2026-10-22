@@ -34,7 +34,7 @@ class DoctorTests(unittest.TestCase):
         os.environ.pop('WINEPREFIX', None)
         os.environ.pop('BASH_ENV', None)
         patch.object(cli, 'ENGINE', self.engine).start()
-        cli.configure(self.home, self.config / 'satisfactory-modding', self.root, self.prefix)
+        cli.configure(self.home, self.config / 'satmod', self.root, self.prefix)
         self.marker = self.root / cli.MARKER
         self.marker.write_text(json.dumps({'source_pin': cli.PIN, 'selection': cli.SELECTION,
                                          'toolchain': str(self.root), 'wineprefix': str(self.prefix)}))
@@ -150,7 +150,7 @@ class DoctorTests(unittest.TestCase):
                 result = cli.doctor()
                 self.assertEqual(result['status'], 'ok')
                 self.assertEqual(result['checks'][-1]['status'], 'warn')
-                self.assertIn('outside satisfactory-modding run', result['checks'][-1]['message'])
+                self.assertIn('outside satmod run', result['checks'][-1]['message'])
         with patch.dict(os.environ, {'WINEPREFIX': str(self.prefix)}):
             self.assertEqual(self.checks()['wineprefix-env']['status'], 'ok')
 
@@ -160,7 +160,7 @@ class DoctorTests(unittest.TestCase):
                 self.marker.unlink()
             for json_mode in [False, True]:
                 output = io.StringIO()
-                with patch.object(cli.sys, 'argv', ['satisfactory-modding', 'doctor'] + (['--json'] if json_mode else [])), \
+                with patch.object(cli.sys, 'argv', ['satmod', 'doctor'] + (['--json'] if json_mode else [])), \
                         contextlib.redirect_stdout(output):
                     self.assertEqual(cli.main(), int(fail))
                 if json_mode:
@@ -182,9 +182,9 @@ class RunTests(unittest.TestCase):
         self.home = Path(self.temp.name)
         self.env = dict(os.environ, HOME=str(self.home), XDG_CONFIG_HOME=str(self.home))
         self.env.pop('BASH_ENV', None)
-        self.file = self.home / 'satisfactory-modding/environment.sh'
+        self.file = self.home / 'satmod/environment.sh'
         self.file.parent.mkdir()
-        self.command = ['python3', str(RECIPE / 'satisfactory-modding')]
+        self.command = ['python3', str(RECIPE / 'satmod')]
 
     def invoke(self, *args):
         return subprocess.run(self.command + list(args), env=self.env, capture_output=True, text=True)
@@ -203,7 +203,7 @@ class RunTests(unittest.TestCase):
             self.assertEqual(self.invoke(*args).returncode, 2)
         result = self.invoke('run', 'true')
         self.assertEqual(result.returncode, 1)
-        self.assertIn('satisfactory-modding setup', result.stderr)
+        self.assertIn('satmod setup', result.stderr)
 
     def test_literal_help_command_and_command_help_argument(self):
         self.file.write_text('export TEST_SOURCED=yes\n')
@@ -325,8 +325,8 @@ class ModTests(unittest.TestCase):
                 "m=importlib.machinery.SourceFileLoader('cli',sys.argv[1]).load_module(); "
                 "m.ENGINE=m.Path(sys.argv[2]); "
                 "m.STEAM_ROOTS=[m.Path(sys.argv[3]),m.Path(sys.argv[4])]; "
-                "sys.argv=['satisfactory-modding',*sys.argv[5:]]; sys.exit(m.main())")
-        return subprocess.run(['python3', '-c', code, str(RECIPE / 'satisfactory-modding'),
+                "sys.argv=['satmod',*sys.argv[5:]]; sys.exit(m.main())")
+        return subprocess.run(['python3', '-c', code, str(RECIPE / 'satmod'),
                                str(self.engine), str(self.home / 'steam'), str(self.home / 'alternate'),
                                'mod', *args], cwd=self.project.parent, env=os.environ,
                               stdin=subprocess.DEVNULL, text=True, capture_output=True)
@@ -470,7 +470,7 @@ class ModTests(unittest.TestCase):
         cli.environment_file().unlink()
         result = self.build()
         self.assertEqual(result.returncode, 1)
-        self.assertIn('satisfactory-modding setup', result.stderr)
+        self.assertIn('satmod setup', result.stderr)
         cli.environment_file().write_text('true\n')
         self.uat.unlink()
         result = self.build()
@@ -764,7 +764,7 @@ class ProjectFixture(unittest.TestCase):
     def invoke(self, *extra, json_output=True, interactive=False, command='init'):
         output = io.StringIO()
         with tempfile.TemporaryFile(mode='w+') as errors:
-            argv = ['satisfactory-modding', 'project', command, str(self.project), *extra]
+            argv = ['satmod', 'project', command, str(self.project), *extra]
             if json_output: argv.append('--json')
             with patch.object(cli.sys, 'argv', argv), patch.object(cli.sys.stdin, 'isatty', return_value=interactive), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
                 code = cli.main()
@@ -841,7 +841,7 @@ class ProjectInitTests(ProjectFixture):
         self.assertEqual(code, 0, error)
         self.assertEqual(output.count(': skipped'), 7)
         self.assertIn('Unreal Project Model Mods Fix', output)
-        self.assertIn('satisfactory-modding run rider', output)
+        self.assertIn('satmod run rider', output)
         self.assertEqual(self.calls(), calls)
         self.assertEqual(self.http.call_count, 1)
         with patch.dict(os.environ, {'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''}):
@@ -879,7 +879,7 @@ class ProjectInitTests(ProjectFixture):
             code, output, error = self.invoke()
         self.assertEqual(code, 1); self.assertEqual(output, '')
         self.assertIn('SHA-256 mismatch', error)
-        self.assertEqual(list((cli.cache_home() / 'satisfactory-modding/wwise-cli/v0.2.4').iterdir()), [])
+        self.assertEqual(list((cli.cache_home() / 'satmod/wwise-cli/v0.2.4').iterdir()), [])
         self.assertEqual([c['name'] for c in self.calls()], ['git'])
 
     def test_network_error_is_clean(self):
@@ -974,7 +974,7 @@ class ProjectInitTests(ProjectFixture):
         # A parent that closes stdin leaves sys.stdin as None.
         output = io.StringIO()
         with tempfile.TemporaryFile(mode='w+') as errors:
-            argv = ['satisfactory-modding', 'project', 'init', str(self.project), '--json']
+            argv = ['satmod', 'project', 'init', str(self.project), '--json']
             with patch.dict(os.environ, {'WWISE_EMAIL': '', 'WWISE_PASSWORD': ''}), \
                     patch.object(cli.sys, 'argv', argv), patch.object(cli.sys, 'stdin', None), \
                     contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
@@ -1045,13 +1045,13 @@ class ProjectInitTests(ProjectFixture):
         manifest = json.loads((RECIPE.parent.parent / 'upstream-inputs.json').read_text())['wwise']
         # These constants are patched for fixture downloads; compare a fresh module.
         import runpy
-        constants = runpy.run_path(str(RECIPE / 'satisfactory-modding'))
+        constants = runpy.run_path(str(RECIPE / 'satmod'))
         # The Wwise SDK and integration versions come from each Starter Project's build.yml.
         self.assertEqual(set(manifest), {'repository', 'version', 'url', 'asset', 'bytes', 'sha256'})
         for key, constant in [('version', 'WWISE_CLI_VERSION'), ('url', 'WWISE_CLI_URL'),
                               ('bytes', 'WWISE_CLI_SIZE'), ('sha256', 'WWISE_CLI_SHA256')]:
             self.assertEqual(manifest[key], constants[constant])
-        with patch.object(cli.sys, 'argv', ['satisfactory-modding', 'project', 'init']), contextlib.redirect_stderr(io.StringIO()):
+        with patch.object(cli.sys, 'argv', ['satmod', 'project', 'init']), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as raised:
                 cli.main()
         self.assertEqual(raised.exception.code, 2)

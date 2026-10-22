@@ -1,22 +1,22 @@
-# satisfactory-modding
+# satmod
 
-This package provides one CLI, `satisfactory-modding`, with these commands:
+This package provides one CLI, `satmod`, with these commands:
 
-- `satisfactory-modding setup` installs the MSVC compiler and Windows SDK under
+- `satmod setup` installs the MSVC compiler and Windows SDK under
   Wine for your user, registers the engine, and writes the environment the engine
   needs to build mods. Run it yourself; package installation never runs it.
-- `satisfactory-modding project init DIR` clones and configures the Starter Project and Wwise.
-- `satisfactory-modding run` runs any command, such as your IDE, with that
+- `satmod project init DIR` clones and configures the Starter Project and Wwise.
+- `satmod run` runs any command, such as your IDE, with that
   environment.
-- `satisfactory-modding mod new` creates a library mod from Alpakit templates.
-- `satisfactory-modding mod build` builds and packages a Windows client mod,
+- `satmod mod new` creates a library mod from Alpakit templates.
+- `satmod mod build` builds and packages a Windows client mod,
   then optionally copies it into the game.
-- `satisfactory-modding doctor` checks the installation without changing files,
+- `satmod doctor` checks the installation without changing files,
   downloading anything, starting Wine, or running smoke tests.
 
 The toolchain wrappers pin the managed Wine prefix and ignore `BASH_ENV` for
 their child processes, so a `WINEPREFIX` set in shell startup files does not leak
-into builds. Rerun `satisfactory-modding setup` to apply this fix to an existing
+into builds. Rerun `satmod setup` to apply this fix to an existing
 toolchain.
 
 It covers the toolchain and command-line **Project Setup**. Most people get it
@@ -25,10 +25,10 @@ what setup does and how to create and build mods after Project Setup.
 
 ## Initialize a project
 
-After `satisfactory-modding setup`, run:
+After `satmod setup`, run:
 
 ```sh
-satisfactory-modding project init ~/git/SatisfactoryModLoader
+satmod project init ~/git/SatisfactoryModLoader
 ```
 
 The command performs a full git clone when DIR is absent. An existing directory
@@ -40,7 +40,7 @@ values SML's CI uses. The command fails if it cannot find exactly one of each.
 It then:
 
 1. Downloads wwise-cli v0.2.4 and verifies its pinned size and SHA-256. The binary
-   lives at `${XDG_CACHE_HOME:-~/.cache}/satisfactory-modding/wwise-cli/v0.2.4/wwise-cli`.
+   lives at `${XDG_CACHE_HOME:-~/.cache}/satmod/wwise-cli/v0.2.4/wwise-cli`.
    Use `--wwise-cli PATH` to supply your own executable instead. The upstream
    wwise-cli repository has no license file; this package does not redistribute it.
 2. Downloads the SDK and Authoring using the guide's platform filters. Wwise
@@ -88,7 +88,7 @@ to command arguments. Fully completed runs need no credentials.
 Install Rider's **Unreal Project Model Mods Fix** plugin and open the project:
 
 ```sh
-satisfactory-modding run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
+satmod run rider ~/git/SatisfactoryModLoader/FactoryGame.uproject
 ```
 
 Build with Development, Editor, and Linux selected, then start the editor.
@@ -99,7 +99,7 @@ The initializer does not launch Rider or the editor. Keep the local
 ## Update a project
 
 ```sh
-satisfactory-modding project update ~/git/SatisfactoryModLoader
+satmod project update ~/git/SatisfactoryModLoader
 ```
 
 This fast-forwards an existing Starter Project to `origin/master`, or to
@@ -136,7 +136,7 @@ Install the [engine package](../unreal-engine-css-bin/README.md) first. Then bui
 and install this package as your ordinary user:
 
 ```sh
-cd packages/satisfactory-modding
+cd packages/satmod
 makepkg -si
 ```
 
@@ -151,7 +151,7 @@ Microsoft files.
 Run as your ordinary user, not with `sudo`:
 
 ```sh
-satisfactory-modding setup
+satmod setup
 ```
 
 This downloads Microsoft tools under the
@@ -186,10 +186,10 @@ fully offline.
 
 | What | Default | Option |
 | --- | --- | --- |
-| Toolchain | `${XDG_DATA_HOME:-~/.local/share}/satisfactory-modding/msvc` | `--toolchain` |
-| Download cache | `${XDG_CACHE_HOME:-~/.cache}/satisfactory-modding/msvc-wine` | `--cache` |
-| Wine prefix | `${XDG_DATA_HOME:-~/.local/share}/satisfactory-modding/wineprefix` | `--wineprefix` |
-| Environment file | `${XDG_CONFIG_HOME:-~/.config}/satisfactory-modding/environment.sh` | none |
+| Toolchain | `${XDG_DATA_HOME:-~/.local/share}/satmod/msvc` | `--toolchain` |
+| Download cache | `${XDG_CACHE_HOME:-~/.cache}/satmod/msvc-wine` | `--cache` |
+| Wine prefix | `${XDG_DATA_HOME:-~/.local/share}/satmod/wineprefix` | `--wineprefix` |
+| Environment file | `${XDG_CONFIG_HOME:-~/.config}/satmod/environment.sh` | none |
 | Engine registration | `~/.config/Epic/UnrealEngine/Install.ini` | none |
 | Engine hook | one line in `~/.unrealrc` | none |
 
@@ -210,24 +210,24 @@ The engine loads the environment through `~/.unrealrc`. For tools started
 outside the engine, such as an IDE, use the launcher:
 
 ```sh
-satisfactory-modding run /path/to/your/ide
-satisfactory-modding run /opt/unreal-engine-css/Engine/Binaries/Linux/UnrealEditor
+satmod run /path/to/your/ide
+satmod run /opt/unreal-engine-css/Engine/Binaries/Linux/UnrealEditor
 ```
 
 It loads the environment file and runs the command with your arguments as given.
 It exits 1 if setup has not run, 2 if no command is given, and otherwise with the
 command's own exit status.
 
-Use `satisfactory-modding run --help` for help. To run a command named `--help`,
-use `satisfactory-modding run -- --help`. Arguments after the command pass through
+Use `satmod run --help` for help. To run a command named `--help`,
+use `satmod run -- --help`. Arguments after the command pass through
 unchanged, including spaces and quotes. Bash sources the environment file before
 replacing itself with the command, so signals pass through too.
 
 ## Check the installation
 
 ```sh
-satisfactory-modding doctor
-satisfactory-modding doctor --json
+satmod doctor
+satmod doctor --json
 ```
 
 Doctor checks:
@@ -239,11 +239,11 @@ Doctor checks:
 - `environment`: the environment file has the exact managed format. Doctor reads
   custom toolchain and Wine prefix paths from it.
 - `toolchain`: the completion marker matches the source pin and paths, and the
-  managed `msvcenv.sh` block pins the same prefix. Run `satisfactory-modding setup`
+  managed `msvcenv.sh` block pins the same prefix. Run `satmod setup`
   for full revalidation and smoke tests.
 - `unrealrc`: the managed hook is present in `~/.unrealrc`.
 - `wineprefix-env`: warns if `WINEPREFIX` differs or `BASH_ENV` is set. Wrappers
-  pin the managed prefix, but other tools outside `satisfactory-modding run`
+  pin the managed prefix, but other tools outside `satmod run`
   may use the wrong one.
 
 Each check prints one line with its id, `ok`, `warn`, or `fail`, and a message
@@ -253,7 +253,7 @@ and 0 otherwise, including when there are only warnings.
 
 ## Exit status and output
 
-A bare `satisfactory-modding` prints help and exits 2. Use `--help` on the CLI or
+A bare `satmod` prints help and exits 2. Use `--help` on the CLI or
 any subcommand for help.
 
 Setup exits 0 on success, 1 on failure, and 2 on invalid arguments. Progress and
@@ -267,7 +267,7 @@ Removing or upgrading the package never touches user data. To remove it by
 hand, delete the toolchain, download cache, Wine prefix, and environment file
 listed under [Locations](#locations), any `.msvc-stage-*` directories next to the
 toolchain, and the line ending in
-`# satisfactory-modding-setup` in `~/.unrealrc`. If you only delete the
+`# satmod` in `~/.unrealrc`. If you only delete the
 environment file, that line does nothing. Keep the engine registration in
 `Install.ini` unless you also remove the engine.
 
@@ -277,8 +277,8 @@ After completing Project Setup, run from the Starter Project or one of its
 subdirectories:
 
 ```sh
-satisfactory-modding mod new MyMod
-satisfactory-modding mod new MyCppMod --cpp
+satmod mod new MyMod
+satmod mod new MyCppMod --cpp
 ```
 
 `REF` is the permanent mod reference. Use only letters, digits, and underscores.
@@ -295,7 +295,7 @@ project's Alpakit plugin, including when it is under `Plugins` or a configured
 additional plugin directory. The command creates `Mods/REF`, replaces
 `PLUGIN_NAME` in paths and text, creates an empty `Content` directory, and writes
 `REF.uplugin`. The C++ module uses `Runtime` and `Default`, with uppercase API
-macros. The editor or `satisfactory-modding mod build REF` compiles its source.
+macros. The editor or `satmod mod build REF` compiles its source.
 Creation uses a temporary sibling directory and a rename; failures remove the
 staging directory instead of leaving a partial mod. The created mod directory
 uses the current umask, like a normal directory.
@@ -316,9 +316,9 @@ create or fix up Unreal assets.
 ## Build a mod
 
 ```sh
-satisfactory-modding mod build MyMod
-satisfactory-modding mod build MyMod --no-copy
-satisfactory-modding mod build MyMod --project ~/git/SatisfactoryModLoader --game /path/to/Satisfactory
+satmod mod build MyMod
+satmod mod build MyMod --no-copy
+satmod mod build MyMod --project ~/git/SatisfactoryModLoader --game /path/to/Satisfactory
 ```
 
 Both commands accept `--project PATH`, either a `.uproject` file or its directory.
@@ -336,7 +336,7 @@ Then build uses `/opt/unreal-engine-css/Engine/Build/BatchFiles/RunUAT.sh` and A
 `PackagePlugin` command with `Shipping` client/server configuration, `Win64`,
 `-build`, `-nocompileeditor`, and `-installed`. Only the Windows client is built
 for now. It sources the managed environment file written by
-`satisfactory-modding setup`, with `BASH_ENV` and `ENV` removed before starting
+`satmod setup`, with `BASH_ENV` and `ENV` removed before starting
 bash. Child stdin is `/dev/null`; environment diagnostics and UAT logs go to
 stderr.
 
@@ -362,5 +362,5 @@ paths), and `game_mod` (an existing copied directory or `null`). New JSON has
 ## License
 
 The setup scripts are [ISC](LICENSE), as is the bundled `msvc-wine` snapshot.
-Both notices are installed under `/usr/share/licenses/satisfactory-modding/`.
+Both notices are installed under `/usr/share/licenses/satmod/`.
 The Microsoft tools that setup downloads keep their own terms.
