@@ -18,6 +18,7 @@ import tempfile
 import hashlib
 import urllib.request
 import urllib.error
+from xml.etree import ElementTree
 
 PIN = "61b7cbc8cb9413fec8f0016ef433a90e06c37f54"
 SOURCE = Path(__file__).resolve().parent / "msvc-wine"
@@ -38,14 +39,10 @@ WWISE_CLI_VERSION = "v0.2.4"
 WWISE_CLI_URL = "https://github.com/mircearoata/wwise-cli/releases/download/v0.2.4/wwise-cli_linux_amd64"
 WWISE_CLI_SIZE = 9060352
 WWISE_CLI_SHA256 = "23ff2858e275ed33c02fad7ab96b0bab12c8a0c2015a90c6df820a55dca6ea9f"
-WWISE_SDK_VERSION = "2023.1.14.8770"
-WWISE_INTEGRATION_VERSION = "2023.1.14.3555"
-WWISE_PLUGIN_VERSION = "2023.1.14.8770.3555"
 WWISE_PROJECT_NAME = "SatisfactoryModLoader_WwiseProject"
 WWISE_CREDENTIALS = ("WWISE_EMAIL", "WWISE_PASSWORD", "WWISE_USER", "WWISE_PASS")
 WWISE_PLATFORMS = ("x64_vc160", "x64_vc170", "Linux_x64")
-SOUNDBANK_FILES = ("ProjectInfo.xml", "Windows/Init.bnk", "Windows/Init.txt",
-                   "Windows/SoundbanksInfo.xml", "Windows/PluginInfo.xml", "Windows/PlatformInfo.xml")
+BUILD_WORKFLOW = ".github/workflows/build.yml"
 
 
 class SetupError(Exception):
@@ -534,31 +531,69 @@ def cache_home():
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
 
 
-def wwise_sdk():
-    return cache_home() / "wwise-cli/wwise" / WWISE_SDK_VERSION
+def wwise_versions(text, source):
+    """Return the SDK, integration, and plugin versions a Starter Project's CI uses."""
+    version = r'"?(\d+(?:\.\d+){3})"?'
+    sdk = re.findall(r"wwise-cli download\b[^\n]*--sdk-version " + version, text)
+    integration = re.findall(r"wwise-cli integrate-ue\b[^\n]*--integration-version " + version, text)
+    require(len(sdk) == 1 and len(integration) == 1,
+            f"Expected one wwise-cli download --sdk-version and one integrate-ue "
+            f"--integration-version in {source}")
+    sdk, integration = sdk[0], integration[0]
+    require(sdk.split(".")[:3] == integration.split(".")[:3],
+            f"Wwise SDK {sdk} and integration {integration} do not match in {source}")
+    # Wwise.uplugin's VersionName is the SDK version plus the integration build.
+    return sdk, integration, sdk + "." + integration.rsplit(".", 1)[1]
 
 
-def wwise_console():
-    return wwise_sdk() / "Authoring/x64/Release/bin/WwiseConsole.exe"
+def wwise_sdk(version):
+    return cache_home() / "wwise-cli/wwise" / version
 
 
-def sdk_ready():
-    return (all((wwise_sdk() / "SDK" / platform).is_dir() for platform in WWISE_PLATFORMS)
-            and wwise_console().is_file()
-            and (wwise_sdk() / "info.json").is_file())
+def wwise_console(version):
+    return wwise_sdk(version) / "Authoring/x64/Release/bin/WwiseConsole.exe"
 
 
-def integration_ready(project):
-    plugin = project / "Plugins/Wwise/Wwise.uplugin"
+def sdk_ready(version):
+    return (all((wwise_sdk(version) / "SDK" / platform).is_dir() for platform in WWISE_PLATFORMS)
+            and wwise_console(version).is_file()
+            and (wwise_sdk(version) / "info.json").is_file())
+
+
+def plugin_version(project):
     try:
-        data = json.loads(plugin.read_text(encoding="utf-8-sig"))
+        data = json.loads((project / "Plugins/Wwise/Wwise.uplugin").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
-        return False
-    return (isinstance(data, dict) and data.get("VersionName") == WWISE_PLUGIN_VERSION
+        return None
+    return data.get("VersionName") if isinstance(data, dict) else None
+
+
+def integration_ready(project, version):
+    return (plugin_version(project) == version
             and (project / "Plugins/WwiseNiagara").is_dir()
             and all(path.is_dir() and any(path.iterdir())
                     for path in (project / "Plugins/Wwise/ThirdParty" / platform
                                  for platform in WWISE_PLATFORMS)))
+
+
+def xml_root(path):
+    try:
+        return ElementTree.parse(path).getroot()
+    except (OSError, ElementTree.ParseError):
+        return None
+
+
+def wproj_version(path):
+    root = xml_root(path)
+    if root is None or not root.get("WwiseVersion") or not root.get("WwiseBuild"):
+        return None
+    return root.get("WwiseVersion").removeprefix("v") + "." + root.get("WwiseBuild")
+
+
+def soundbanks_version(banks):
+    root = xml_root(banks / "ProjectInfo.xml")
+    project = root.find("Project") if root is not None else None
+    return project.get("Generator") if project is not None else None
 
 
 def verified_wwise_cli(path):
@@ -596,9 +631,8 @@ def obtain_wwise_cli(explicit=None):
     return path, "done", f"downloaded {WWISE_CLI_VERSION} and verified SHA-256"
 
 
-def audio_routing(project, write=False):
-    path = project / "Config/DefaultGame.ini"
-    original = path.read_bytes()
+def separate_routing(original, path):
+    """Return DefaultGame.ini bytes with AkSettings AudioRouting=Separate."""
     # Match bytes so BOM, newline style, and unrelated settings remain untouched.
     section = re.search(rb"(?m)^(?:\xef\xbb\xbf)?\[/Script/AkAudio\.AkSettings\][^\S\r\n]*\r?\n(.*?)(?=^\[|\Z)",
                         original, re.DOTALL)
@@ -614,24 +648,115 @@ def audio_routing(project, write=False):
                 f"Expected {key.decode()}={value.decode()} in AkSettings in {path}")
     matches = list(re.finditer(rb"(?m)^AudioRouting=([^\r\n]*)", settings))
     require(len(matches) == 1, f"Missing or duplicate AudioRouting key in AkSettings in {path}")
-    match = matches[0]
-    if match.group(1) == b"Separate":
+    begin = section.start(1) + matches[0].start(1)
+    end = section.start(1) + matches[0].end(1)
+    return original[:begin] + b"Separate" + original[end:]
+
+
+def audio_routing(project, write=False):
+    path = project / "Config/DefaultGame.ini"
+    original = path.read_bytes()
+    updated = separate_routing(original, path)
+    if updated == original:
         return "skipped", "AudioRouting already Separate"
     if write:
-        begin = section.start(1) + match.start(1)
-        end = section.start(1) + match.end(1)
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".DefaultGame.ini-",
                                              delete=False) as output:
                 temporary = Path(output.name)
-                output.write(original[:begin] + b"Separate" + original[end:])
+                output.write(updated)
                 os.fchmod(output.fileno(), stat.S_IMODE(path.stat().st_mode))
             os.replace(temporary, path)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
     return "done", "set AkSettings AudioRouting=Separate"
+
+
+def git(project, *args, check=True):
+    result = subprocess.run([GIT, "-C", str(project), *[str(a) for a in args]],
+                            env=child_environment(), stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=sys.stderr)
+    require(not check or result.returncode == 0, f"git {args[0]} failed (exit code {result.returncode})")
+    return result
+
+
+def remove_wwise_plugins(project):
+    """Remove integrated Wwise plugins; integrate-ue copies over files and never deletes."""
+    plugins = sorted((project / "Plugins").glob("Wwise*"))
+    for path in plugins:
+        require(not path.is_symlink() and path.is_dir(), f"Refusing to remove {path}: not a directory")
+        tracked = git(project, "ls-files", "--", path.relative_to(project)).stdout
+        require(not tracked, f"Refusing to remove {path}: git tracks files in it")
+    for path in plugins:
+        shutil.rmtree(path)
+
+
+def wwise_steps(project, versions, wwise_cli, record):
+    sdk, integration, plugin = versions
+    executable, status, detail = obtain_wwise_cli(wwise_cli)
+    record("wwise-cli", status, detail)
+    download = not sdk_ready(sdk)
+    integrate = not integration_ready(project, plugin)
+    wwise_env = wwise_environment(os.environ)
+    interactive = not (wwise_env.get("WWISE_EMAIL") and wwise_env.get("WWISE_PASSWORD"))
+    if download or integrate:
+        require(not interactive or (sys.stdin is not None and sys.stdin.isatty()),
+                "Set both WWISE_EMAIL and WWISE_PASSWORD (or WWISE_USER and WWISE_PASS) "
+                "for noninteractive Wwise authentication")
+    def wwise(command):
+        # Only authentication children inherit the terminal; credentials stay in env.
+        # wwise-cli prints its prompts and signed download URLs on stdout.
+        result = subprocess.run([str(executable), *command], env=wwise_env,
+                                stdin=None if interactive else subprocess.DEVNULL,
+                                stdout=sys.stderr if interactive else subprocess.DEVNULL,
+                                stderr=sys.stderr)
+        require(result.returncode == 0, f"wwise-cli {command[0]} failed (exit code {result.returncode})")
+    if download:
+        wwise(["download", "--sdk-version", sdk,
+               "--filter", "Packages=SDK", "--filter", "DeploymentPlatforms=Windows_vc160",
+               "--filter", "DeploymentPlatforms=Windows_vc170", "--filter", "DeploymentPlatforms=Linux",
+               "--filter", "DeploymentPlatforms=", "--filter", "Packages=Authoring"])
+        require(sdk_ready(sdk), "wwise-cli download did not produce all SDK platform folders, WwiseConsole.exe, and info.json")
+    record("wwise-download", "done" if download else "skipped", f"SDK {sdk}")
+    detail = f"integration {plugin}"
+    if integrate:
+        previous = plugin_version(project)
+        remove_wwise_plugins(project)
+        wwise(["integrate-ue", "--integration-version", integration,
+               "--project", str(project / "FactoryGame.uproject")])
+        require(integration_ready(project, plugin), "Wwise integration missing expected VersionName, WwiseNiagara, or non-empty ThirdParty platform folders")
+        if previous and previous != plugin:
+            detail += f", replaced {previous}"
+    record("wwise-integrate", "done" if integrate else "skipped", detail)
+    wproj = project / WWISE_PROJECT_NAME / (WWISE_PROJECT_NAME + ".wproj")
+    banks = wproj.parent / "GeneratedSoundBanks"
+    old_project = wproj_version(wproj) if wproj.is_file() else None
+    create = not wproj.is_file()
+    migrate = not create and old_project != sdk
+    generate = not (banks / "Windows/Init.bnk").is_file() or soundbanks_version(banks) != sdk
+    if create or migrate or generate:
+        console = wwise_console(sdk)
+        require(console.is_file(), f"Missing WwiseConsole.exe: {console}")
+        wine_env = {"WINEDEBUG": "-all", "WINEDLLOVERRIDES": "mscoree,mshtml="}
+        windows_path = managed_command([WINEPATH, "-w", wproj], project, capture=True,
+                                       extra_env=wine_env).strip()
+        require(bool(windows_path) and "\n" not in windows_path, "winepath did not return one Windows path")
+        if create or migrate:
+            managed_command([WINE, console, "create-new-project" if create else "migrate", windows_path],
+                            project, extra_env=wine_env)
+            require(wproj_version(wproj) == sdk,
+                    f"WwiseConsole did not {'create' if create else 'migrate'} the Wwise project for {sdk}")
+        if generate:
+            managed_command([WINE, console, "generate-soundbank", windows_path], project, extra_env=wine_env)
+            require((banks / "Windows/Init.bnk").is_file() and soundbanks_version(banks) == sdk,
+                    f"WwiseConsole did not produce Windows/Init.bnk and ProjectInfo.xml for {sdk}")
+    record("wwise-project", "done" if create or migrate else "skipped",
+           f"{wproj}, migrated from {old_project}" if migrate else str(wproj))
+    record("soundbanks", "done" if generate else "skipped", str(banks))
+    status, detail = audio_routing(project, write=True)
+    record("audio-routing", status, detail)
 
 
 def init_project(args):
@@ -646,56 +771,11 @@ def init_project(args):
         run([GIT, "clone", "https://github.com/satisfactorymodding/SatisfactoryModLoader.git", project], dict(os.environ))
         require((project / "FactoryGame.uproject").is_file(), f"Clone did not produce FactoryGame.uproject: {project}")
         record("clone", "done", "cloned Starter Project")
-    # Check tracked settings before downloads or Wine work.
+    # Check tracked settings and versions before downloads or Wine work.
     audio_routing(project)
-    executable, status, detail = obtain_wwise_cli(args.wwise_cli)
-    record("wwise-cli", status, detail)
-    download = not sdk_ready()
-    integrate = not integration_ready(project)
-    wwise_env = wwise_environment(os.environ)
-    interactive = not (wwise_env.get("WWISE_EMAIL") and wwise_env.get("WWISE_PASSWORD"))
-    if download or integrate:
-        require(not interactive or (sys.stdin is not None and sys.stdin.isatty()),
-                "Set both WWISE_EMAIL and WWISE_PASSWORD (or WWISE_USER and WWISE_PASS) "
-                "for noninteractive Wwise authentication")
-    def wwise(command):
-        # Only authentication children inherit the terminal; credentials stay in env.
-        result = subprocess.run([str(executable), *command], env=wwise_env,
-                                stdin=None if interactive else subprocess.DEVNULL,
-                                stdout=sys.stderr, stderr=sys.stderr)
-        require(result.returncode == 0, f"wwise-cli {command[0]} failed (exit code {result.returncode})")
-    if download:
-        wwise(["download", "--sdk-version", WWISE_SDK_VERSION,
-               "--filter", "Packages=SDK", "--filter", "DeploymentPlatforms=Windows_vc160",
-               "--filter", "DeploymentPlatforms=Windows_vc170", "--filter", "DeploymentPlatforms=Linux",
-               "--filter", "DeploymentPlatforms=", "--filter", "Packages=Authoring"])
-        require(sdk_ready(), "wwise-cli download did not produce all SDK platform folders, WwiseConsole.exe, and info.json")
-    record("wwise-download", "done" if download else "skipped", f"SDK {WWISE_SDK_VERSION}")
-    if integrate:
-        wwise(["integrate-ue", "--integration-version", WWISE_INTEGRATION_VERSION,
-               "--project", str(project / "FactoryGame.uproject")])
-        require(integration_ready(project), "Wwise integration missing expected VersionName, WwiseNiagara, or non-empty ThirdParty platform folders")
-    record("wwise-integrate", "done" if integrate else "skipped", f"integration {WWISE_PLUGIN_VERSION}")
-    wproj = project / WWISE_PROJECT_NAME / (WWISE_PROJECT_NAME + ".wproj")
-    banks = wproj.parent / "GeneratedSoundBanks"
-    create = not wproj.is_file()
-    generate = not (banks / "Windows/Init.bnk").is_file()
-    if create or generate:
-        require(wwise_console().is_file(), f"Missing WwiseConsole.exe: {wwise_console()}")
-        wine_env = {"WINEDEBUG": "-all", "WINEDLLOVERRIDES": "mscoree,mshtml="}
-        windows_path = managed_command([WINEPATH, "-w", wproj], project, capture=True,
-                                       extra_env=wine_env).strip()
-        require(bool(windows_path) and "\n" not in windows_path, "winepath did not return one Windows path")
-        if create:
-            managed_command([WINE, wwise_console(), "create-new-project", windows_path], project, extra_env=wine_env)
-            require(wproj.is_file(), "WwiseConsole did not create the Wwise project")
-        if generate:
-            managed_command([WINE, wwise_console(), "generate-soundbank", windows_path], project, extra_env=wine_env)
-            require(all((banks / file).is_file() for file in SOUNDBANK_FILES), "WwiseConsole did not produce all expected soundbank files")
-    record("wwise-project", "done" if create else "skipped", str(wproj))
-    record("soundbanks", "done" if generate else "skipped", str(banks))
-    status, detail = audio_routing(project, write=True)
-    record("audio-routing", status, detail)
+    workflow = project / BUILD_WORKFLOW
+    require(workflow.is_file(), f"Missing {workflow}; it names the Wwise versions")
+    wwise_steps(project, wwise_versions(workflow.read_text(), workflow), args.wwise_cli, record)
     return {"status": "complete", "project": str(project), "steps": steps}
 
 

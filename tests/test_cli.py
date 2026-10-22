@@ -645,7 +645,65 @@ class ModTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
 
-class ProjectInitTests(unittest.TestCase):
+OLD_SDK, OLD_INTEGRATION, OLD_PLUGIN = '2023.1.14.8770', '2023.1.14.3555', '2023.1.14.8770.3555'
+NEW_SDK, NEW_INTEGRATION, NEW_PLUGIN = '2025.1.6.9117', '2025.1.6.4248', '2025.1.6.9117.4248'
+
+
+def build_yml(sdk, integration):
+    # Shaped like upstream's workflow, including an unrelated --sdk-version.
+    return ('      - name: Install MSVC\n        run: ./vsdownload.py --sdk-version 10.0.22621\n'
+            '      - name: Download Wwise\n        run: |\n'
+            f'          ./wwise-cli download --sdk-version "{sdk}" --filter Packages=SDK >/dev/null\n'
+            f'          ./wwise-cli integrate-ue --integration-version "{integration}" --project "/tmp/work/SML/FactoryGame.uproject" >/dev/null\n')
+
+
+FAKE_TOOL = r"""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+home=Path(os.environ['FIXTURE_HOME'])
+name=Path(sys.argv[0]).name
+args=sys.argv[1:]
+if name in ('wwise-cli','wine'): print('child progress')
+with (home/'calls.jsonl').open('a') as f:
+ f.write(json.dumps({'name':name,'argv':args,'env':dict(os.environ),'stdin':os.read(0,1).decode()})+'\n')
+def touch(p, text='{}'):
+ p.parent.mkdir(parents=True,exist_ok=True); p.write_text(text)
+if name=='git':
+ # Real git against a local origin; a clone of the upstream URL clones that origin.
+ if args[0]=='clone': args=['clone',os.environ['FAKE_ORIGIN'],args[-1]]
+ os.execv(os.environ['REAL_GIT'],['git',*args])
+elif name=='wwise-cli':
+ if os.environ.get('FAKE_WWISE_FAIL') in ('1', args[0]): sys.exit(3)
+ if args[0]=='download':
+  p=Path(os.environ['XDG_CACHE_HOME'])/'wwise-cli/wwise'/args[args.index('--sdk-version')+1]
+  for platform in ('x64_vc160','x64_vc170','Linux_x64'): (p/'SDK'/platform).mkdir(parents=True,exist_ok=True)
+  touch(p/'Authoring/x64/Release/bin/WwiseConsole.exe'); touch(p/'info.json')
+ else:
+  integration=args[args.index('--integration-version')+1]
+  sdk={'2023.1.14.3555':'2023.1.14.8770','2025.1.6.4248':'2025.1.6.9117'}[integration]
+  (Path(os.environ['XDG_CACHE_HOME'])/'wwise-cli/unrealintegration'/integration).mkdir(parents=True,exist_ok=True)
+  p=Path(args[-1]).parent
+  touch(p/'Plugins/Wwise/Wwise.uplugin', json.dumps({'VersionName':sdk+'.'+integration.split('.')[-1]}))
+  (p/'Plugins/WwiseNiagara').mkdir(parents=True,exist_ok=True)
+  for platform in ('x64_vc160','x64_vc170','Linux_x64'): touch(p/'Plugins/Wwise/ThirdParty'/platform/'library.a')
+elif name=='winepath': print(args[-1])
+elif name=='wine':
+ # WwiseConsole lives in .../wwise-cli/wwise/VERSION/Authoring/x64/Release/bin.
+ version=Path(args[0]).parents[4].name
+ p=Path(args[-1])
+ project='<WwiseDocument Type="Project" WwiseVersion="v%s" WwiseBuild="%s"/>' % tuple(version.rsplit('.',1))
+ if args[1]=='create-new-project': touch(p, project)
+ elif args[1]=='migrate':
+  assert p.is_file()
+  if not os.environ.get('FAKE_MIGRATE_NOOP'): touch(p, project)
+ else:
+  banks=p.parent/'GeneratedSoundBanks'
+  touch(banks/'ProjectInfo.xml', '<ProjectInfo><Project Generator="%s"/></ProjectInfo>' % version)
+  if not os.environ.get('FAKE_BANKS_MISSING'): touch(banks/'Windows/Init.bnk')
+"""
+
+
+class ProjectFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -657,51 +715,30 @@ class ProjectInitTests(unittest.TestCase):
                     b'WwiseProjectPath=(FilePath="SatisfactoryModLoader_WwiseProject/SatisfactoryModLoader_WwiseProject.wproj")\r\n'
                     b'RootOutputPath=(Path="../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks")\r\n'
                     b'AudioRouting=Custom\r\n[After]\r\nAudioRouting=Custom\r\n')
+        self.origin = self.home / 'origin.git'
         patch.dict(os.environ, {'HOME': str(self.home), 'XDG_CACHE_HOME': str(self.home / 'cache'),
             'XDG_CONFIG_HOME': str(self.home / 'config'), 'WWISE_EMAIL': 'secret@example.com',
             'WWISE_PASSWORD': 'secret-password', 'WWISE_USER': '', 'WWISE_PASS': '',
             'BASH_ENV': '/must-not-be-sourced',
-            'ENV': '/must-not-be-sourced', 'FIXTURE_HOME': str(self.home)}).start()
+            'ENV': '/must-not-be-sourced', 'FIXTURE_HOME': str(self.home),
+            'FAKE_ORIGIN': str(self.origin), 'REAL_GIT': shutil.which('git'),
+            'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
+            'GIT_AUTHOR_NAME': 'Fixture', 'GIT_AUTHOR_EMAIL': 'fixture@example.com',
+            'GIT_COMMITTER_NAME': 'Fixture', 'GIT_COMMITTER_EMAIL': 'fixture@example.com'}).start()
         self.record = self.home / 'calls.jsonl'
-        (self.home / 'ini').write_bytes(self.ini)
-        script = '''#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-home=Path(os.environ['FIXTURE_HOME'])
-name=Path(sys.argv[0]).name
-if name!='winepath': print('child progress')
-args=sys.argv[1:]
-with (home/'calls.jsonl').open('a') as f:
- f.write(json.dumps({'name':name,'argv':args,'env':dict(os.environ),'stdin':os.read(0,1).decode()})+'\\n')
-def touch(p):
- p.parent.mkdir(parents=True,exist_ok=True); p.write_text('{}')
-if name=='git':
- p=Path(args[-1]); touch(p/'FactoryGame.uproject'); touch(p/'Config/DefaultGame.ini')
- (p/'Config/DefaultGame.ini').write_bytes((home/'ini').read_bytes())
-elif name=='wwise-cli':
- if os.environ.get('FAKE_WWISE_FAIL'): sys.exit(3)
- if args[0]=='download':
-  p=Path(os.environ['XDG_CACHE_HOME'])/'wwise-cli/wwise/2023.1.14.8770'
-  for platform in ('x64_vc160','x64_vc170','Linux_x64'): (p/'SDK'/platform).mkdir(parents=True,exist_ok=True)
-  touch(p/'Authoring/x64/Release/bin/WwiseConsole.exe'); touch(p/'info.json')
- else:
-  p=Path(args[-1]).parent; touch(p/'Plugins/Wwise/Wwise.uplugin')
-  (p/'Plugins/Wwise/Wwise.uplugin').write_text('{"VersionName":"2023.1.14.8770.3555"}')
-  (p/'Plugins/WwiseNiagara').mkdir(parents=True,exist_ok=True)
-  for platform in ('x64_vc160','x64_vc170','Linux_x64'): touch(p/'Plugins/Wwise/ThirdParty'/platform/'library.a')
-elif name=='winepath': print(args[-1])
-elif name=='wine':
- p=Path(args[-1])
- if args[1]=='create-new-project': touch(p)
- else:
-  for name in ('ProjectInfo.xml','Windows/Init.bnk','Windows/Init.txt','Windows/SoundbanksInfo.xml','Windows/PluginInfo.xml','Windows/PlatformInfo.xml'):
-   if not os.environ.get('FAKE_BANKS_MISSING') or name!='Windows/PluginInfo.xml': touch(p.parent/'GeneratedSoundBanks'/name)
-'''
+        self.seed = self.home / 'seed'
+        self.git_setup('init', '--quiet', '--bare', '--initial-branch=master', str(self.origin), cwd=self.home)
+        self.git_setup('init', '--quiet', '--initial-branch=master', str(self.seed), cwd=self.home)
+        self.git_setup('remote', 'add', 'origin', str(self.origin))
+        self.commit({'FactoryGame.uproject': b'{"EngineAssociation": "5.6.1-CSS"}',
+                     'Config/DefaultGame.ini': self.ini,
+                     '.github/workflows/build.yml': build_yml(OLD_SDK, OLD_INTEGRATION).encode(),
+                     '.gitignore': b'Plugins/Wwise*/*\n*_WwiseProject/*\n'}, 'Initial')
         for name, constant in [('git', 'GIT'), ('wine', 'WINE'), ('winepath', 'WINEPATH')]:
             path = self.home / name
-            path.write_text(script); path.chmod(0o755)
+            path.write_text(FAKE_TOOL); path.chmod(0o755)
             patch.object(cli, constant, str(path)).start()
-        self.binary = script.encode()
+        self.binary = FAKE_TOOL.encode()
         import hashlib
         patch.object(cli, 'WWISE_CLI_SIZE', len(self.binary)).start()
         patch.object(cli, 'WWISE_CLI_SHA256', hashlib.sha256(self.binary).hexdigest()).start()
@@ -710,10 +747,22 @@ elif name=='wine':
         file.parent.mkdir(parents=True)
         file.write_text("export WINEPREFIX='/managed prefix'\nexport WINEDEBUG=wrong\n")
 
-    def invoke(self, *extra, json_output=True, interactive=False):
+    def git_setup(self, *args, cwd=None):
+        subprocess.run([shutil.which('git'), *args], cwd=cwd or self.seed, check=True,
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
+    def commit(self, files, message):
+        for name, content in files.items():
+            (self.seed / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.seed / name).write_bytes(content)
+        self.git_setup('add', '--all')
+        self.git_setup('commit', '--quiet', '-m', message)
+        self.git_setup('push', '--quiet', 'origin', 'HEAD:master')
+
+    def invoke(self, *extra, json_output=True, interactive=False, command='init'):
         output = io.StringIO()
         with tempfile.TemporaryFile(mode='w+') as errors:
-            argv = ['satisfactory-modding', 'project', 'init', str(self.project), *extra]
+            argv = ['satisfactory-modding', 'project', command, str(self.project), *extra]
             if json_output: argv.append('--json')
             with patch.object(cli.sys, 'argv', argv), patch.object(cli.sys.stdin, 'isatty', return_value=interactive), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
                 code = cli.main()
@@ -722,6 +771,32 @@ elif name=='wine':
 
     def calls(self):
         return [json.loads(line) for line in self.record.read_text().splitlines()] if self.record.exists() else []
+
+
+class ProjectInitTests(ProjectFixture):
+    def test_wwise_versions_from_build_yml(self):
+        self.assertEqual(cli.wwise_versions(build_yml(NEW_SDK, NEW_INTEGRATION), 'build.yml'),
+                         (NEW_SDK, NEW_INTEGRATION, NEW_PLUGIN))
+        for text, message in [('', 'Expected one'),
+                              (build_yml(NEW_SDK, NEW_INTEGRATION) * 2, 'Expected one'),
+                              (build_yml(NEW_SDK, NEW_INTEGRATION).replace('wwise-cli download', 'wwise-cli fetch'), 'Expected one'),
+                              (build_yml(NEW_SDK, '2025.1.6'), 'Expected one'),
+                              (build_yml(NEW_SDK, OLD_INTEGRATION), 'do not match')]:
+            with self.subTest(text=text), self.assertRaisesRegex(cli.SetupError, message + '.*build.yml'):
+                cli.wwise_versions(text, 'build.yml')
+
+    def test_init_takes_wwise_versions_from_the_clone(self):
+        self.commit({'.github/workflows/build.yml': build_yml(NEW_SDK, NEW_INTEGRATION).encode()}, 'New Wwise')
+        code, output, error = self.invoke()
+        self.assertEqual(code, 0, error)
+        argv = [c['argv'] for c in self.calls() if c['name'] == 'wwise-cli']
+        self.assertEqual(argv[0][:3], ['download', '--sdk-version', NEW_SDK])
+        self.assertEqual(argv[1][:3], ['integrate-ue', '--integration-version', NEW_INTEGRATION])
+        self.assertTrue(cli.integration_ready(self.project, NEW_PLUGIN))
+        self.assertEqual(cli.soundbanks_version(self.project / cli.WWISE_PROJECT_NAME / 'GeneratedSoundBanks'), NEW_SDK)
+        (self.project / '.github/workflows/build.yml').unlink()
+        code, output, error = self.invoke()
+        self.assertEqual(code, 1); self.assertIn('Missing', error); self.assertIn('build.yml', error)
 
     def test_fresh_and_rerun_all_skipped(self):
         code, output, error = self.invoke()
@@ -732,11 +807,11 @@ elif name=='wine':
         calls = self.calls()
         self.assertEqual([c['name'] for c in calls], ['git', 'wwise-cli', 'wwise-cli', 'winepath', 'wine', 'wine'])
         self.assertEqual(calls[0]['argv'], ['clone', 'https://github.com/satisfactorymodding/SatisfactoryModLoader.git', str(self.project)])
-        self.assertEqual(calls[1]['argv'], ['download', '--sdk-version', cli.WWISE_SDK_VERSION,
+        self.assertEqual(calls[1]['argv'], ['download', '--sdk-version', OLD_SDK,
             '--filter', 'Packages=SDK', '--filter', 'DeploymentPlatforms=Windows_vc160',
             '--filter', 'DeploymentPlatforms=Windows_vc170', '--filter', 'DeploymentPlatforms=Linux',
             '--filter', 'DeploymentPlatforms=', '--filter', 'Packages=Authoring'])
-        self.assertEqual(calls[2]['argv'], ['integrate-ue', '--integration-version', cli.WWISE_INTEGRATION_VERSION,
+        self.assertEqual(calls[2]['argv'], ['integrate-ue', '--integration-version', OLD_INTEGRATION,
                                          '--project', str(self.project / 'FactoryGame.uproject')])
         for call in calls:
             self.assertEqual(call['stdin'], '')
@@ -781,7 +856,9 @@ elif name=='wine':
         self.assertEqual(code, 0, error)
         self.assertEqual([s['status'] for s in json.loads(output)['steps']],
                          ['skipped', 'skipped', 'skipped', 'done', 'skipped', 'done', 'skipped'])
-        self.assertEqual([c['name'] for c in self.calls()[6:]], ['wwise-cli', 'winepath', 'wine'])
+        # The stale plugin is checked against git before it is replaced.
+        self.assertEqual([c['name'] for c in self.calls()[6:]], ['git', 'git', 'wwise-cli', 'winepath', 'wine'])
+        self.assertEqual([c['argv'][-1] for c in self.calls()[6:8]], ['Plugins/Wwise', 'Plugins/WwiseNiagara'])
         self.assertEqual(self.http.call_count, 1)
 
     def test_checksum_failure_cleans_temporary_download(self):
@@ -868,6 +945,8 @@ elif name=='wine':
         self.assertEqual(len(seen), 2)
         for kwargs in seen:
             self.assertIs(kwargs['stdin'], subprocess.DEVNULL)
+            # stdout carries signed download URLs.
+            self.assertIs(kwargs['stdout'], subprocess.DEVNULL)
 
     def test_missing_credentials_non_tty(self):
         for variable in ('WWISE_EMAIL', 'WWISE_PASSWORD'):
@@ -920,12 +999,12 @@ elif name=='wine':
         self.assertNotIn('secret', error)
         with patch.dict(os.environ, {'FAKE_BANKS_MISSING': '1'}):
             code, output, error = self.invoke()
-        self.assertEqual(code, 1); self.assertIn('all expected soundbank files', error)
+        self.assertEqual(code, 1); self.assertIn('Windows/Init.bnk and ProjectInfo.xml', error)
 
     def test_tty_authentication_children_inherit_streams(self):
         # Inspect the subprocess contract without using a real terminal or credentials.
         self.assertEqual(self.invoke()[0], 0)
-        (cli.wwise_sdk() / 'info.json').unlink()
+        (cli.wwise_sdk(OLD_SDK) / 'info.json').unlink()
         (self.project / 'Plugins/Wwise/Wwise.uplugin').unlink()
         original = cli.subprocess.run
         seen = []
@@ -954,9 +1033,10 @@ elif name=='wine':
         # These constants are patched for fixture downloads; compare a fresh module.
         import runpy
         constants = runpy.run_path(str(RECIPE / 'satisfactory-modding'))
+        # The Wwise SDK and integration versions come from each Starter Project's build.yml.
+        self.assertEqual(set(manifest), {'repository', 'version', 'url', 'asset', 'bytes', 'sha256'})
         for key, constant in [('version', 'WWISE_CLI_VERSION'), ('url', 'WWISE_CLI_URL'),
-                              ('bytes', 'WWISE_CLI_SIZE'), ('sha256', 'WWISE_CLI_SHA256'),
-                              ('sdk_version', 'WWISE_SDK_VERSION'), ('integration_version', 'WWISE_INTEGRATION_VERSION')]:
+                              ('bytes', 'WWISE_CLI_SIZE'), ('sha256', 'WWISE_CLI_SHA256')]:
             self.assertEqual(manifest[key], constants[constant])
         with patch.object(cli.sys, 'argv', ['satisfactory-modding', 'project', 'init']), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as raised:
@@ -996,23 +1076,24 @@ elif name=='wine':
         import shutil
         self.assertEqual(self.invoke()[0], 0)
         for platform in cli.WWISE_PLATFORMS:
-            shutil.rmtree(cli.wwise_sdk() / 'SDK' / platform)
-            self.assertFalse(cli.sdk_ready())
+            shutil.rmtree(cli.wwise_sdk(OLD_SDK) / 'SDK' / platform)
+            self.assertFalse(cli.sdk_ready(OLD_SDK))
             code, output, error = self.invoke()
             self.assertEqual(code, 0, error)
             statuses = {step['id']: step['status'] for step in json.loads(output)['steps']}
             self.assertEqual(statuses['wwise-download'], 'done')
             self.assertEqual(statuses['wwise-integrate'], 'skipped')
-            self.assertTrue(cli.sdk_ready())
+            self.assertTrue(cli.sdk_ready(OLD_SDK))
             folder = self.project / 'Plugins/Wwise/ThirdParty' / platform
             for file in folder.iterdir(): file.unlink()
-            self.assertFalse(cli.integration_ready(self.project))
+            self.assertFalse(cli.integration_ready(self.project, OLD_PLUGIN))
             code, output, error = self.invoke()
             self.assertEqual(code, 0, error)
             statuses = {step['id']: step['status'] for step in json.loads(output)['steps']}
             self.assertEqual(statuses['wwise-download'], 'skipped')
             self.assertEqual(statuses['wwise-integrate'], 'done')
-            self.assertTrue(cli.integration_ready(self.project))
+            self.assertTrue(cli.integration_ready(self.project, OLD_PLUGIN))
             shutil.rmtree(folder)
-            self.assertFalse(cli.integration_ready(self.project))
+            self.assertFalse(cli.integration_ready(self.project, OLD_PLUGIN))
             self.assertEqual(self.invoke()[0], 0)
+
