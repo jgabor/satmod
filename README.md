@@ -137,8 +137,9 @@ Clone the Starter Project, run wwise-cli download and integrate-ue, create
 soundbanks. In the editor, set Root Output Path to
 `../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks` and audio routing to
 **Both Wwise and Unreal audio**. Keep the local `Config/DefaultGame.ini` change
-out of commits sent upstream. Both the manual path and the CLI path have been
-used on this machine for real mod development.
+out of commits sent upstream. The manual path has been verified end to end
+and is in daily use for mod development. The CLI path ran for real on an
+empty directory and matched the manual result.
 
 If Rider shows **Project 'Engine' load failed** with a permission error in its
 UnrealBuildTool log, you are not in the `unreal-engine-css` group yet, or you have

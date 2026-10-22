@@ -107,6 +107,8 @@ first runs `git fetch origin`, then checks, without changing the work tree, that
   `~/.config/Epic/UnrealEngine/Install.ini`. Engine changes are out of scope.
 - The target's build.yml names the Wwise versions and its `DefaultGame.ini`
   still has the expected AkSettings.
+- wwise-cli is available and, when Wwise must change, can authenticate: both
+  credential variables are set, or a terminal is attached for its prompts.
 
 It then restores `DefaultGame.ini`, runs `git merge --ff-only`, and runs the same
 Wwise steps as `project init`. If the merge fails, it puts
@@ -116,6 +118,9 @@ and a rerun on a current project skips every step. Old Wwise caches under
 `wwise-cli/wwise` and `wwise-cli/unrealintegration` are listed with their sizes
 under `old_caches` and kept; remove them by hand to free space. A Wwise change
 also forces a rebuild of the Wwise plugin the next time you build the project.
+The project's WwisePatches record what they applied in
+`Plugins/Wwise/applied_patches.txt`, so removing the old plugin also makes the
+next build apply the new patches to the fresh one.
 
 ## Build and install
 

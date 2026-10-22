@@ -694,18 +694,25 @@ def remove_wwise_plugins(project):
         shutil.rmtree(path)
 
 
-def wwise_steps(project, versions, wwise_cli, record):
-    sdk, integration, plugin = versions
+def wwise_access(project, versions, wwise_cli):
+    """Get wwise-cli and check that it can authenticate, before anything changes."""
+    sdk, _, plugin = versions
     executable, status, detail = obtain_wwise_cli(wwise_cli)
-    record("wwise-cli", status, detail)
-    download = not sdk_ready(sdk)
-    integrate = not integration_ready(project, plugin)
     wwise_env = wwise_environment(os.environ)
     interactive = not (wwise_env.get("WWISE_EMAIL") and wwise_env.get("WWISE_PASSWORD"))
-    if download or integrate:
+    if not sdk_ready(sdk) or not integration_ready(project, plugin):
         require(not interactive or (sys.stdin is not None and sys.stdin.isatty()),
                 "Set both WWISE_EMAIL and WWISE_PASSWORD (or WWISE_USER and WWISE_PASS) "
                 "for noninteractive Wwise authentication")
+    return executable, wwise_env, interactive, (status, detail)
+
+
+def wwise_steps(project, versions, access, record):
+    sdk, integration, plugin = versions
+    executable, wwise_env, interactive, (status, detail) = access
+    record("wwise-cli", status, detail)
+    download = not sdk_ready(sdk)
+    integrate = not integration_ready(project, plugin)
     def wwise(command):
         # Only authentication children inherit the terminal; credentials stay in env.
         # wwise-cli prints its prompts and signed download URLs on stdout.
@@ -776,7 +783,8 @@ def init_project(args):
     audio_routing(project)
     workflow = project / BUILD_WORKFLOW
     require(workflow.is_file(), f"Missing {workflow}; it names the Wwise versions")
-    wwise_steps(project, wwise_versions(workflow.read_text(), workflow), args.wwise_cli, record)
+    versions = wwise_versions(workflow.read_text(), workflow)
+    wwise_steps(project, versions, wwise_access(project, versions, args.wwise_cli), record)
     return {"status": "complete", "project": str(project), "steps": steps}
 
 
@@ -828,6 +836,7 @@ def update_project(args):
             "engine changes are out of scope for project update")
     source = f"{args.ref}:{BUILD_WORKFLOW}"
     versions = wwise_versions(git(project, "show", f"{target}:{BUILD_WORKFLOW}").stdout.decode(), source)
+    access = wwise_access(project, versions, args.wwise_cli)
     steps = []
     def record(id, status, detail):
         steps.append({"id": id, "status": status, "detail": detail})
@@ -843,7 +852,7 @@ def update_project(args):
             audio_routing(project, write=True)
             raise
         record("checkout", "done", f"{head[:10]} -> {target[:10]}")
-    wwise_steps(project, versions, args.wwise_cli, record)
+    wwise_steps(project, versions, access, record)
     sdk, integration, _ = versions
     old = [path for name, keep in (("wwise", sdk), ("unrealintegration", integration))
            for path in sorted((cache_home() / "wwise-cli" / name).glob("*"))

@@ -1266,6 +1266,12 @@ class ProjectUpdateTests(ProjectFixture):
             self.assertEqual(code, 1); self.assertIn('Unknown ref: origin/missing', error)
         self.assertEqual(ini.read_bytes(), current)
 
+    def test_refuses_missing_credentials_before_checkout(self):
+        self.upstream_wwise_update()
+        with patch.dict(os.environ, {'WWISE_PASSWORD': ''}):
+            self.assert_refused('WWISE_EMAIL and WWISE_PASSWORD')
+        self.assertEqual(self.separate(self.ini), (self.project / 'Config/DefaultGame.ini').read_bytes())
+
     def test_refuses_engine_change(self):
         self.commit({'FactoryGame.uproject': b'{"EngineAssociation": "5.7.0-CSS"}'}, 'New engine')
         self.assert_refused('engine changes are out of scope')
