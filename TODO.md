@@ -133,7 +133,19 @@ Git history has the details.
 ## Open verification
 
 - [ ] Build both packages in a clean Arch chroot with prefetched engine parts.
-- [ ] Run namcap on both recipes and built packages, and review the findings.
+- [ ] Run namcap on the built engine package. No built engine package was on disk
+  on 2026-10-22, so this waits for the chroot build. namcap on both recipes and
+  on `satisfactory-modding-setup` 1.0.0-7 found nothing to fix:
+  - Both recipes: only "Missing Contributor tag", which is informational.
+  - "Referenced library bash/sh/perl/python3 is an uninstalled dependency" and
+    "Script link detected": namcap does not resolve `#!/usr/bin/env` shebangs.
+    All four interpreters are in `depends`.
+  - "Dependency included, but may not be needed" for every non-Python
+    dependency: the CLI runs them as programs, and its `TOOLS` list and msvc-wine
+    need each one, and HTTPS downloads need `ca-certificates`.
+  - "No ELF files and not an any package": kept as `x86_64` on purpose. It only
+    works with the x86_64 engine and Wine, and bootstrap expects x86_64
+    metadata.
 - [ ] Check file ownership, permissions, and declared dependencies in the built
   packages.
 - [ ] Test package removal, and confirm user data survives. Upgrade over the
