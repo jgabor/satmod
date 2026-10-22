@@ -135,7 +135,7 @@ Git history has the details.
 - [ ] Build both packages in a clean Arch chroot with prefetched engine parts.
 - [ ] Run namcap on the built engine package. No built engine package was on disk
   on 2026-10-22, so this waits for the chroot build. namcap on both recipes and
-  on `satisfactory-modding-setup` 1.0.0-7 found nothing to fix:
+  on `satisfactory-modding-setup` 1.0.0-8 found nothing to fix:
   - Both recipes: only "Missing Contributor tag", which is informational.
   - "Referenced library bash/sh/perl/python3 is an uninstalled dependency" and
     "Script link detected": namcap does not resolve `#!/usr/bin/env` shebangs.

@@ -3,7 +3,7 @@
 # shellcheck disable=SC2034,SC2154
 pkgname=satisfactory-modding-setup
 pkgver=1.0.0
-pkgrel=7
+pkgrel=8
 pkgdesc='User-run MSVC/Wine setup for Satisfactory mod development'
 arch=('x86_64')
 url='https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html'
@@ -24,6 +24,8 @@ package() {
     local dest="$pkgdir/usr/share/$pkgname"
     install -d "$dest" "$pkgdir/usr/bin"
     cp -a "$srcdir/msvc-wine-$_commit" "$dest/msvc-wine"
+    # Setup never runs msvc-wine's own tests or container builds.
+    rm -r "$dest/msvc-wine/test" "$dest/msvc-wine"/Dockerfile*
     # Keep executable scripts and relative aliases; remove write access for others.
     find "$dest/msvc-wine" -type d -exec chmod 755 {} +
     find "$dest/msvc-wine" -type f -exec chmod go-w {} +

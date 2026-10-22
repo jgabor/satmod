@@ -644,8 +644,14 @@ class SetupRecipeTests(unittest.TestCase):
             )
             upstream = src / f"msvc-wine-{cli.PIN}"
             installed = pkg / "usr/share/satisfactory-modding-setup/msvc-wine"
+            # Everything but msvc-wine's own tests and Dockerfiles ships.
+            shipped = [
+                p for p in upstream.rglob("*")
+                if not (p.relative_to(upstream).parts[0] == "test" or p.name.startswith("Dockerfile"))
+            ]
+            self.assertLess(len(shipped), len(list(upstream.rglob("*"))))
             self.assertEqual(
-                sorted(str(p.relative_to(upstream)) for p in upstream.rglob("*")),
+                sorted(str(p.relative_to(upstream)) for p in shipped),
                 sorted(str(p.relative_to(installed)) for p in installed.rglob("*")),
             )
             self.assertEqual(
@@ -659,7 +665,7 @@ class SetupRecipeTests(unittest.TestCase):
                 "LICENSE.txt",
             ):
                 self.assertTrue((installed / name).is_file())
-            for file in upstream.rglob("*"):
+            for file in shipped:
                 target = installed / file.relative_to(upstream)
                 if file.is_symlink():
                     self.assertEqual(os.readlink(target), os.readlink(file))

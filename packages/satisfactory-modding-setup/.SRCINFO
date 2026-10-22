@@ -1,7 +1,7 @@
 pkgbase = satisfactory-modding-setup
 	pkgdesc = User-run MSVC/Wine setup for Satisfactory mod development
 	pkgver = 1.0.0
-	pkgrel = 7
+	pkgrel = 8
 	url = https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html
 	install = satisfactory-modding-setup.install
 	arch = x86_64
