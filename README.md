@@ -56,6 +56,9 @@ Running bootstrap downloads Microsoft build tools. See
 - `project init` needs about **15 GB** more: roughly 1.5 GB for the clone, 7 GB for
   the Wwise download cache, and 7 GB for the integrated Wwise plugin. One run
   took about five minutes on a fast connection.
+- A `project update` that changes the Wwise version needs about **7 GB** more for
+  the new Wwise caches. The new plugin replaces the old one, so it needs no
+  extra space. The old caches stay until you remove them.
 
 ## What bootstrap does
 
@@ -111,6 +114,11 @@ runs, set `WWISE_EMAIL` and `WWISE_PASSWORD` in the environment; `WWISE_USER` an
 `WWISE_PASS` work too. Reruns skip completed steps. See the [command details](packages/satisfactory-modding-setup/README.md#initialize-a-project)
 for cache paths, version pins, and `--wwise-cli` and `--json` options.
 
+When upstream SML moves on, `satisfactory-modding project update
+~/git/SatisfactoryModLoader` fast-forwards the project and updates Wwise to the
+versions the new commit needs. It stops without changing anything if you have
+local commits or changes of your own. See [update a project](packages/satisfactory-modding-setup/README.md#update-a-project).
+
 Install Rider's **Unreal Project Model Mods Fix** plugin, then open the project:
 
 ```sh
@@ -129,8 +137,8 @@ Clone the Starter Project, run wwise-cli download and integrate-ue, create
 soundbanks. In the editor, set Root Output Path to
 `../SatisfactoryModLoader_WwiseProject/GeneratedSoundBanks` and audio routing to
 **Both Wwise and Unreal audio**. Keep the local `Config/DefaultGame.ini` change
-out of commits sent upstream. The manual path has been verified end to end;
-the CLI path still needs clean-machine verification.
+out of commits sent upstream. Both the manual path and the CLI path have been
+used on this machine for real mod development.
 
 If Rider shows **Project 'Engine' load failed** with a permission error in its
 UnrealBuildTool log, you are not in the `unreal-engine-css` group yet, or you have

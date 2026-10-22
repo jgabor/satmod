@@ -32,17 +32,27 @@ satisfactory-modding project init ~/git/SatisfactoryModLoader
 ```
 
 The command performs a full git clone when DIR is absent. An existing directory
-must contain `FactoryGame.uproject`; it never pulls or resets git state. It then:
+must contain `FactoryGame.uproject`; it never pulls or resets git state. To move an
+existing project to newer upstream commits, use [`project update`](#update-a-project).
+The Wwise versions come from the project's `.github/workflows/build.yml`, the
+same `wwise-cli download --sdk-version` and `integrate-ue --integration-version`
+values SML's CI uses. The command fails if it cannot find exactly one of each.
+It then:
 
 1. Downloads wwise-cli v0.2.4 and verifies its pinned size and SHA-256. The binary
    lives at `${XDG_CACHE_HOME:-~/.cache}/satisfactory-modding/wwise-cli/v0.2.4/wwise-cli`.
    Use `--wwise-cli PATH` to supply your own executable instead. The upstream
    wwise-cli repository has no license file; this package does not redistribute it.
-2. Downloads SDK and Authoring 2023.1.14.8770 using the guide's platform filters.
-   Wwise's cache is `${XDG_CACHE_HOME:-~/.cache}/wwise-cli/wwise/2023.1.14.8770`.
-3. Integrates Unreal version 2023.1.14.3555 and checks Wwise and WwiseNiagara.
-4. Creates `SatisfactoryModLoader_WwiseProject/SatisfactoryModLoader_WwiseProject.wproj`
-   and generates Windows soundbanks using WwiseConsole under the managed Wine environment.
+2. Downloads the SDK and Authoring using the guide's platform filters.
+   Wwise's cache is `${XDG_CACHE_HOME:-~/.cache}/wwise-cli/wwise/SDK_VERSION`.
+3. Integrates the Unreal plugin and checks Wwise and WwiseNiagara. When the
+   integrated version differs, it first removes every `Plugins/Wwise*` folder,
+   because integrate-ue copies over files and never deletes old ones. It refuses
+   if git tracks files in them.
+4. Creates `SatisfactoryModLoader_WwiseProject/SatisfactoryModLoader_WwiseProject.wproj`,
+   or migrates it with WwiseConsole when its `WwiseVersion` is older, then
+   generates Windows soundbanks when `GeneratedSoundBanks/ProjectInfo.xml` names
+   another version. WwiseConsole runs under the managed Wine environment.
 5. Sets only AkSettings `AudioRouting=Separate` in `Config/DefaultGame.ini`,
    preserving the BOM, line endings, file mode, and other settings through atomic
    replacement. It checks the tracked
@@ -52,7 +62,10 @@ Each completed step is skipped on rerun, so interrupted runs can resume.
 The summary lists `done` or `skipped` for each step. `--json` emits one object
 with `status`, `project`, and `steps` containing `id`, `status`, and `detail`.
 Child output and diagnostics always go to stderr, including authentication prompts.
-Only stdin is inherited for interactive authentication.
+Only stdin is inherited for interactive authentication. wwise-cli prints signed
+download URLs on stdout, so its stdout is discarded when credentials come from
+the environment. When it has to prompt, its stdout stays on your terminal's
+stderr so you can see the prompt.
 
 wwise-cli reads `WWISE_EMAIL` and `WWISE_PASSWORD` from the environment. The CLI
 also accepts `WWISE_USER` and `WWISE_PASS` as a second pair and uses it when the
@@ -74,6 +87,35 @@ Build with Development, Editor, and Linux selected, then start the editor.
 `mod new` and `mod build` are available for creating and packaging mods.
 The initializer does not launch Rider or the editor. Keep the local
 `Config/DefaultGame.ini` audio-routing change out of commits sent upstream.
+
+## Update a project
+
+```sh
+satisfactory-modding project update ~/git/SatisfactoryModLoader
+```
+
+This fast-forwards an existing Starter Project to `origin/master`, or to
+`--ref REF`, and brings Wwise to the versions that commit's build.yml names. It
+first runs `git fetch origin`, then checks, without changing the work tree, that:
+
+- DIR is the top of a git checkout with `FactoryGame.uproject`.
+- HEAD has no commits that the target lacks.
+- The only local change is this tool's `AudioRouting=Separate`, with or without
+  the removed BOM, in `Config/DefaultGame.ini`. Any other change stops the
+  command; it never stashes or discards your work.
+- The target's `EngineAssociation` maps to the installed engine in
+  `~/.config/Epic/UnrealEngine/Install.ini`. Engine changes are out of scope.
+- The target's build.yml names the Wwise versions and its `DefaultGame.ini`
+  still has the expected AkSettings.
+
+It then restores `DefaultGame.ini`, runs `git merge --ff-only`, and runs the same
+Wwise steps as `project init`. If the merge fails, it puts
+`AudioRouting=Separate` back before it stops. The steps and output match
+`project init`, with a `checkout` step first. A rerun after a failure resumes,
+and a rerun on a current project skips every step. Old Wwise caches under
+`wwise-cli/wwise` and `wwise-cli/unrealintegration` are listed with their sizes
+under `old_caches` and kept; remove them by hand to free space. A Wwise change
+also forces a rebuild of the Wwise plugin the next time you build the project.
 
 ## Build and install
 

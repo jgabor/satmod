@@ -99,6 +99,28 @@ Git history has the details.
 - **Tests.** Fixture tests for every script and hook, using fake tools and
   temporary home directories. They never download engine or Microsoft files.
 
+## In progress
+
+- **`project update` (unit-tested 2026-10-22).** `project update DIR`
+  fast-forwards a Starter Project to `origin/master` or `--ref` and updates Wwise
+  to the versions in the target's build.yml. Before it changes anything, it
+  refuses local commits, changes it does not own, and engine changes. Both
+  commands now read the Wwise versions from the project's build.yml instead of
+  hard-coded pins. Before this, `project init` on a fresh clone very likely
+  integrated Wwise 2023.1.14 next to WwisePatches written for 2025.1.6. Nobody
+  built such a clone, so this is an inference. A changed integration first
+  removes `Plugins/Wwise*`, since integrate-ue never deletes files. An older
+  Wwise project is migrated, and soundbanks are regenerated. wwise-cli's stdout
+  is discarded when it does not prompt, because it prints signed URLs.
+  - [ ] Real run on `~/git/SatisfactoryModLoader` (`d2162c999b` to
+    `8eebc9e659`, Wwise 2023.1.14 to 2025.1.6), then a rerun that skips every
+    step.
+  - [ ] Confirm on that run that `WwiseConsole migrate` works in 2025.1.6, that
+    the plugin's `VersionName` is `2025.1.6.9117.4248`, and that the
+    `x64_vc160`, `x64_vc170`, and `Linux_x64` SDK folders still exist.
+  - [ ] `E2E=1 client/test-linux.sh` passes in `~/git/satisfactory-sync` on the
+    updated project.
+
 ## Open verification
 
 - [ ] Build both packages in a clean Arch chroot with prefetched engine parts.
