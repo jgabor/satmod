@@ -101,7 +101,7 @@ class EngineRecipeTests(unittest.TestCase):
         patch = (RECIPE / "setup-dotnet-permissions.patch").read_bytes()
         self.assertEqual(hashlib.sha256(patch).hexdigest(), data["sha256sums"][5])
         self.assertEqual(data["options"], ["!strip", "!debug", "staticlibs"])
-        self.assertEqual(data["pkgrel"], ["4"])
+        self.assertEqual(data["pkgrel"], ["5"])
         self.assertEqual(
             data["depends"],
             [
@@ -121,8 +121,10 @@ class EngineRecipeTests(unittest.TestCase):
                 "mesa",
                 "nss",
                 "pango",
+                "acl",
             ],
         )
+        self.assertEqual(data["optdepends"], ["vulkan-driver: run the editor", "glu: TechSoft CAD import"])
         self.assertEqual(data["makedepends"], ["github-cli", "zstd", "patch"])
         self.assertNotIn("provides", data)
         self.bash(

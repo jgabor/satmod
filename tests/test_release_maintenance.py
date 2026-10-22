@@ -176,7 +176,7 @@ print(json.dumps(data[endpoint]))
                     changed=False,
                     tag="5.6.1-css-83",
                     pkgver="5.6.1.css83",
-                    pkgrel=4,
+                    pkgrel=5,
                 ),
             )
             self.assertEqual(before, self.snapshot())
@@ -230,9 +230,9 @@ print(json.dumps(data[endpoint]))
 
     def test_same_tag_metadata_change_bumps_once(self):
         self.release["assets"][0]["digest"] = "sha256:" + "f" * 64
-        self.assertEqual(json.loads(self.cli("--json").stdout)["pkgrel"], 5)
+        self.assertEqual(json.loads(self.cli("--json").stdout)["pkgrel"], 6)
         after = self.snapshot()
-        self.assertEqual(json.loads(self.cli("--json").stdout)["pkgrel"], 5)
+        self.assertEqual(json.loads(self.cli("--json").stdout)["pkgrel"], 6)
         self.assertEqual(after, self.snapshot())
 
     def test_reject_bad_release_metadata_without_edits(self):

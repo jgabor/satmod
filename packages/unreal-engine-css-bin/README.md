@@ -70,7 +70,9 @@ So the engine is owned by root and the `unreal-engine-css` group. Directories ar
 group-writable and setgid, so new files inherit the group. Files are
 group-writable. Nothing is writable by everyone. On install and upgrade the
 package creates the group if needed and reassigns the engine to it, because
-pacman installs files as `root:root`.
+pacman installs files as `root:root`. It also gives every directory a default
+group ACL and makes existing files group-writable, so files that builds create
+stay writable for the group even under umask 022.
 
 Join the group once, then log out and back in:
 
@@ -81,9 +83,11 @@ sudo gpasswd -a "$USER" unreal-engine-css
 Bootstrap does this for you. The install hook prints the command unless it can see
 that the account that ran `sudo` is already a member. `id` shows your groups.
 
-Files you create in the engine get your default permissions, which usually means
-other group members can read them but not change them. That only matters if
-several people on one machine share the engine.
+A tool that creates a file with an explicit mode such as 0644 still gets that
+mode; the next install or upgrade makes it group-writable. That only matters if
+several people on one machine share the engine. The filesystem under `/opt` needs
+ACL support, which ext4, btrfs, and XFS have by default; otherwise the hook warns
+and continues.
 
 Because of this, `pacman -Qkk unreal-engine-css-bin` reports group differences
 on engine files. That is expected.

@@ -19,6 +19,13 @@ _engine_css_group() {
   fi
   chgrp -R unreal-engine-css /opt/unreal-engine-css ||
     printf '%s\n' 'Warning: could not assign engine ownership to group unreal-engine-css.' >&2 || :
+  # Builds write all over the engine. A default group ACL keeps new files
+  # group-writable under umask 022; chmod fixes files earlier builds created.
+  # Both skip symlinks, which group members can create.
+  setfacl -R -P -d -m g::rwx /opt/unreal-engine-css ||
+    printf '%s\n' 'Warning: could not set the default group ACL on the engine.' >&2 || :
+  chmod -R g+w /opt/unreal-engine-css ||
+    printf '%s\n' 'Warning: could not make engine files group-writable.' >&2 || :
   return 0
 }
 

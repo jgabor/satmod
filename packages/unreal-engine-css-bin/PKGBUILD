@@ -3,16 +3,19 @@
 # shellcheck disable=SC2034,SC2154
 pkgname=unreal-engine-css-bin
 pkgver=5.6.1.css83
-pkgrel=4
+pkgrel=5
 pkgdesc='Prebuilt Coffee Stain Unreal Engine for Satisfactory mod development'
 arch=('x86_64')
 url='https://github.com/satisfactorymodding/UnrealEngine'
 license=('LicenseRef-UnrealEngine')
 # Main executable and ordinary CEF host closures, not all optional dlopen paths.
 # Bash runs engine scripts; xdg-utils supplies desktop integration utilities.
+# The install hook sets a default group ACL with setfacl.
 depends=('glibc' 'libgcc' 'libstdc++' 'dbus' 'systemd-libs' 'bash' 'xdg-utils'
          'alsa-lib' 'at-spi2-core' 'libxcomposite' 'libxdamage' 'libxkbcommon'
-         'libxrandr' 'mesa' 'nss' 'pango')
+         'libxrandr' 'mesa' 'nss' 'pango' 'acl')
+optdepends=('vulkan-driver: run the editor'
+            'glu: TechSoft CAD import')
 makedepends=('github-cli' 'zstd' 'patch')
 options=('!strip' '!debug' 'staticlibs')
 install='unreal-engine-css-bin.install'

@@ -17,6 +17,13 @@ COMMAND = (
 )
 
 
+OWNERSHIP = [
+    "chgrp -R unreal-engine-css /opt/unreal-engine-css",
+    "setfacl -R -P -d -m g::rwx /opt/unreal-engine-css",
+    "chmod -R g+w /opt/unreal-engine-css",
+]
+
+
 class EngineNoticeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="engine-notice-fixture-")
@@ -44,7 +51,7 @@ class EngineNoticeTests(unittest.TestCase):
             'printf "%s\\n" "$PASSWD_RECORD"\n'
         )
         getent.chmod(0o755)
-        for command in ("groupadd", "chgrp"):
+        for command in ("groupadd", "chgrp", "setfacl", "chmod"):
             stub = self.bin / command
             stub.write_text(
                 '#!/bin/bash\n'
@@ -109,18 +116,16 @@ class EngineNoticeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "calls").read_text().splitlines(), [
             "groupadd -r unreal-engine-css",
-            "chgrp -R unreal-engine-css /opt/unreal-engine-css",
+            *OWNERSHIP,
         ])
 
     def test_group_present_only_assigns_ownership(self):
         result = self.group_hook()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.root / "calls").read_text().splitlines(), [
-            "chgrp -R unreal-engine-css /opt/unreal-engine-css",
-        ])
+        self.assertEqual((self.root / "calls").read_text().splitlines(), OWNERSHIP)
 
     def test_group_failures_warn_and_do_not_fail_hooks(self):
-        for command in ("groupadd", "chgrp"):
+        for command in ("groupadd", "chgrp", "setfacl", "chmod"):
             for hook in ("post_install", "post_upgrade"):
                 with self.subTest(command=command, hook=hook):
                     self.env["GROUP_MISSING"] = "1"
