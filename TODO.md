@@ -141,6 +141,11 @@ Git history has the details.
   Installing the engine there ran the new hook without warnings: all 33,103
   directories got `default:group::rwx` and setgid, only directories got default
   ACL entries, and every file was group-writable in group `unreal-engine-css`.
+  The same package then upgraded this machine's css83-4 install in 69 seconds,
+  silently because the user is a member and registered. All 35,041 directories
+  got the default ACL, the 3,375 files that builds had left without group write
+  became group-writable, and a new file and directory under umask 022 came out
+  664 and 2775. `satisfactory-modding doctor` still passed.
 - [x] Run namcap on both recipes and both built packages. Nothing to fix.
   Engine package (css83-5), all expected for a prebuilt engine under `/opt`:
   - Setgid on all 33,103 directories and libraries that are not 644: the
