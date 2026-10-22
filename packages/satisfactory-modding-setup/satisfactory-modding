@@ -725,7 +725,9 @@ def wwise_steps(project, versions, access, record):
         wwise(["download", "--sdk-version", sdk,
                "--filter", "Packages=SDK", "--filter", "DeploymentPlatforms=Windows_vc160",
                "--filter", "DeploymentPlatforms=Windows_vc170", "--filter", "DeploymentPlatforms=Linux",
-               "--filter", "DeploymentPlatforms=", "--filter", "Packages=Authoring"])
+               "--filter", "DeploymentPlatforms=", "--filter", "Packages=Authoring",
+               # Wwise 2025 moved the Windows x64 Authoring binaries, WwiseConsole among them.
+               "--filter", "Packages=Authoring_Windows_x64_Release"])
         require(sdk_ready(sdk), "wwise-cli download did not produce all SDK platform folders, WwiseConsole.exe, and info.json")
     record("wwise-download", "done" if download else "skipped", f"SDK {sdk}")
     detail = f"integration {plugin}"

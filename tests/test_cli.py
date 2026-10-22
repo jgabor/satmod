@@ -810,7 +810,8 @@ class ProjectInitTests(ProjectFixture):
         self.assertEqual(calls[1]['argv'], ['download', '--sdk-version', OLD_SDK,
             '--filter', 'Packages=SDK', '--filter', 'DeploymentPlatforms=Windows_vc160',
             '--filter', 'DeploymentPlatforms=Windows_vc170', '--filter', 'DeploymentPlatforms=Linux',
-            '--filter', 'DeploymentPlatforms=', '--filter', 'Packages=Authoring'])
+            '--filter', 'DeploymentPlatforms=', '--filter', 'Packages=Authoring',
+            '--filter', 'Packages=Authoring_Windows_x64_Release'])
         self.assertEqual(calls[2]['argv'], ['integrate-ue', '--integration-version', OLD_INTEGRATION,
                                          '--project', str(self.project / 'FactoryGame.uproject')])
         for call in calls:

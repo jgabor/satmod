@@ -43,7 +43,10 @@ It then:
    lives at `${XDG_CACHE_HOME:-~/.cache}/satisfactory-modding/wwise-cli/v0.2.4/wwise-cli`.
    Use `--wwise-cli PATH` to supply your own executable instead. The upstream
    wwise-cli repository has no license file; this package does not redistribute it.
-2. Downloads the SDK and Authoring using the guide's platform filters.
+2. Downloads the SDK and Authoring using the guide's platform filters. Wwise
+   2025 moved the Windows x64 Authoring binaries, including WwiseConsole, to the
+   `Authoring_Windows_x64_Release` package, which is requested too; its filter
+   also brings about 250 MB of debug symbols that cannot be filtered out.
    Wwise's cache is `${XDG_CACHE_HOME:-~/.cache}/wwise-cli/wwise/SDK_VERSION`.
 3. Integrates the Unreal plugin and checks Wwise and WwiseNiagara. When the
    integrated version differs, it first removes every `Plugins/Wwise*` folder,
