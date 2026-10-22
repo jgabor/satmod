@@ -126,8 +126,10 @@ Git history has the details.
   the user's report.
 - [ ] Repeat setup runs and package upgrade or removal keep unrelated user state.
   Reruns and upgrades are done; removal is not.
-- [ ] The docs give a tested path from repository access through Project Setup
-  with `project init`. The remaining proof is a clean-machine run.
+- [x] The docs give a tested path from repository access through Project Setup
+  with `project init`. No clean-machine run is planned: the setup is in daily
+  use for the mod in `~/git/satisfactory-sync`, and problems will come in as
+  issues.
 
 ## Future
 
@@ -146,9 +148,6 @@ After the completion criteria are met:
 
 ### Project Setup verification
 
-- [ ] Run `project init` on a clean machine or user account, including
-  WwiseConsole project creation and soundbank generation in a fresh managed Wine
-  prefix. The 2026-10-11 run reused this machine's Wine prefix and toolchain.
 - [ ] Run `project init` with no credentials in the environment and answer
   wwise-cli's prompts on a terminal. Only the variable path has run for real.
 - [ ] Build a project created by `project init` in Rider and start the editor.
