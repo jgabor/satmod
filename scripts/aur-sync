@@ -54,6 +54,11 @@ def checkout(name, remote):
     if not (work / ".git").is_dir():
         work.parent.mkdir(parents=True, exist_ok=True)
         git("clone", "--quiet", f"{remote}{name}.git", str(work), cwd=work.parent)
+    # AUR commits are hard to rewrite once pushed; author them as this repository does.
+    for key in ("user.name", "user.email"):
+        value = git("config", "--get", key, cwd=ROOT, check=False).stdout.strip()
+        if value:
+            git("config", key, value, cwd=work)
     git("fetch", "--quiet", "origin", cwd=work)
     git("symbolic-ref", "HEAD", "refs/heads/master", cwd=work)
     head = git("rev-parse", "--verify", "--quiet", "HEAD", cwd=work, check=False).returncode == 0

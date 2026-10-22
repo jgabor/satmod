@@ -33,6 +33,11 @@ class AurSyncTests(unittest.TestCase):
             (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / path, self.repo / path)
         self.git("init", "--quiet", "--initial-branch=main")
+        # The repository's identity, not the environment's, authors AUR commits.
+        self.git("config", "user.name", "Repo Owner")
+        self.git("config", "user.email", "owner@example.com")
+        for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            del self.env[key]
         self.commit("Fixture")
         for name in ("satmod", "unreal-engine-css-bin"):
             self.git("init", "--quiet", "--bare", "--initial-branch=master",
@@ -72,6 +77,8 @@ class AurSyncTests(unittest.TestCase):
             self.assertEqual(self.git("log", "--format=%s", cwd=work).splitlines(),
                              ["Initial import " + (satmod if name == "satmod" else engine)["version"]])
             self.assertEqual(self.git("branch", "--show-current", cwd=work).strip(), "master")
+            self.assertEqual(self.git("log", "--format=%an <%ae>|%cn <%ce>", cwd=work).strip(),
+                             "Repo Owner <owner@example.com>|Repo Owner <owner@example.com>")
             for path in expected:
                 self.assertEqual((work / path).read_bytes(),
                                  (self.repo / "packages" / name / path).read_bytes())
