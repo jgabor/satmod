@@ -67,7 +67,7 @@ next.
    TMPDIR=$PWD/.cache/chroot namcap -i .cache/chroot/out/unreal-engine-css-bin-*.pkg.tar.zst
    ```
 
-   Expect the warnings listed in [TODO.md](TODO.md) under the namcap item, and
+   Expect the warnings under [Known namcap warnings](#known-namcap-warnings), and
    nothing new. `bsdtar -tvf` on the package should show only `root:root`
    entries, `2775` engine directories, no world-writable or setuid files, and no
    `Engine/Source/Programs/LiveLinkHub`.
@@ -96,13 +96,45 @@ next.
    `packages/satmod/PKGBUILD`. Update the script's checksum in `sha256sums`
    and regenerate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`. The suite
    fails if either is stale.
-3. Build with `makepkg -f`, install it, and run `satmod doctor` and the command
-   you changed.
+3. Build with `makepkg -f`, run namcap on the package, install it, and run
+   `satmod doctor` and the command you changed.
 4. Commit, push to GitHub, and publish with `./scripts/aur-sync satmod`, review,
    then `--push`.
 
 Never publish engine archives, Microsoft tools, built packages, or credentials.
 `aur-sync` only copies files that git tracks in `packages/PKG`.
+
+## Known namcap warnings
+
+These were reviewed on 2026-10-22 and need no fix.
+
+Engine package, all expected for a prebuilt engine under `/opt`:
+
+- Setgid directories, and libraries that are not 644: the group-writable design.
+- Unstripped binaries, no full RELRO or PIE, executable stacks in `zen`,
+  `zenserver`, and a TechSoft library, and `ELF files outside of a valid path`:
+  Epic's binaries, packaged as shipped with `!strip`.
+- "Insecure RPATH": mostly relative `${ORIGIN}` paths. A few upstream libraries
+  carry absolute build-machine paths (`/src/build/...`, `/Stage/...`, and
+  `/tmp/dependencies/...` in musl-only files glibc never loads) or an empty entry
+  (`libNNEEditorOnnxTools.so` and two TechSoft libraries).
+- "Dependency detected and not included": the engine bundles Python 3.11,
+  embree, oneTBB, and OpenSSL 1.1, and namcap matches the host's copies. The rest
+  are 32-bit, Android, Java, or toolchain files, or optional Python modules.
+- "Dependency included, but may not be needed" for `bash`, `xdg-utils`, and
+  `acl`: scripts and the install hook use them.
+
+satmod package and both recipes:
+
+- "Missing Contributor tag": informational.
+- "Referenced library bash/sh/perl/python3 is an uninstalled dependency" and
+  "Script link detected": namcap does not resolve `#!/usr/bin/env` shebangs. All
+  four interpreters are in `depends`.
+- "Dependency included, but may not be needed" for every dependency except
+  `python`: the CLI and msvc-wine run them as programs, and HTTPS downloads need
+  `ca-certificates`.
+- "No ELF files and not an any package": `x86_64` on purpose. It only works with
+  the x86_64 engine and Wine, and bootstrap expects x86_64 metadata.
 
 ## User feedback
 
