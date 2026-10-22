@@ -293,4 +293,6 @@ After the completion criteria are met:
 - [ ] Explain the authenticated download and license terms on each package page.
   The pinned comments are drafted and approved; the user posts and pins them on
   both AUR pages.
-- [ ] Set up a reviewed process for engine updates and for user feedback.
+- [x] Set up a reviewed process for engine updates and for user feedback
+  (2026-10-22). [MAINTAINING.md](MAINTAINING.md) covers engine updates, satmod
+  releases, and where feedback arrives.

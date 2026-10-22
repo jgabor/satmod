@@ -206,7 +206,8 @@ Real runs of `project init` need the Audiokinetic login. Copy `.env.example` to
 `.env`, fill it in, and load it with `set -a; . ./.env; set +a`. Git ignores
 `.env`, and the tests never read it.
 
-[TODO.md](TODO.md) tracks open verification work.
+[TODO.md](TODO.md) tracks open work. [MAINTAINING.md](MAINTAINING.md) covers
+engine updates, publishing to the AUR, and user feedback.
 
 ## License
 
