@@ -35,18 +35,11 @@ Rules that hold throughout:
 Finished work is in git history, and [MAINTAINING.md](MAINTAINING.md) covers
 releases and feedback.
 
-- [ ] Let `satmod mod build` find mods linked into `Mods/` or `Plugins/` with a
-  symlink. The SatSync plugin lives in `~/git/satsync` and is linked into the
-  Starter Project as `Mods/SatSync`; plugin discovery does not follow the link,
-  so satsync packages with a hand-written `RunUAT.sh` command instead (see its
-  `docs/identity-test.md`). When this works, satsync can switch to
-  `satmod mod build`.
-- [ ] Tag the published satmod version on GitHub (`v1.0.0` for AUR 1.0.0-1), so
-  bug reports and releases can name the exact commit. Decide whether later
-  releases get a tag for each new `pkgver`.
-- [ ] Install both packages through an AUR helper, for example
-  `paru -S unreal-engine-css-bin satmod`. All builds so far ran `makepkg` from
-  this repository or the AUR checkouts; the engine's `ghasset` download through
-  `download-gh-asset` and the user's `gh` login has not run inside a helper's own
-  build directory. Prefetch the parts into the helper's clone to skip the 8 GB
-  download.
+No open items. Last done (2026-10-22):
+
+- `satmod mod build` follows symlinked mod folders (satmod 1.0.1). It packaged
+  SatSync through `Mods/SatSync` on this machine.
+- Tags `v1.0.0` and `v1.0.1` mark the published satmod versions.
+- `yay -S unreal-engine-css-bin satmod` rebuilt and reinstalled both packages
+  from the AUR. The download helper fetched one engine part through the user's
+  `gh` login inside yay's build folder, and every checksum passed.
