@@ -276,7 +276,17 @@ After the completion criteria are met:
   name is free in the AUR, the official repositories, and on GitHub. msvc-wine
   stays bundled: `msvc-wine-git` tracks a different, unpinned upstream and
   installs a system-wide MSVC during makepkg.
-- [ ] Create one AUR repository per package with its `.SRCINFO`, license, and
-  helper files. Never publish engine archives, Microsoft tools, or built packages.
+- [x] Prepare one AUR repository per package with its `.SRCINFO`, license, and
+  helper files (2026-10-22). `scripts/aur-sync` copies each recipe's tracked
+  files, minus `README.md`, into `.cache/aur/PKG` and commits; it pushes only
+  with `--push`. Both PKGBUILDs name
+  `Jonathan Gabor <jgabor@users.noreply.github.com>` as maintainer, for the
+  `aur-jgabor` account. The engine recipe gained an ISC `LICENSE` and a
+  `REUSE.toml` that marks Epic's notice and the patch as
+  `LicenseRef-UnrealEngine`. satmod ships its script in the AUR repository, so
+  one PKGBUILD serves bootstrap and the AUR.
+- [ ] Push both AUR repositories with `scripts/aur-sync unreal-engine-css-bin satmod
+  --push`, after `jgabor/satmod` is public (satmod's `url` points there). Never
+  publish engine archives, Microsoft tools, or built packages.
 - [ ] Explain the authenticated download and license terms on each package page.
 - [ ] Set up a reviewed process for engine updates and for user feedback.

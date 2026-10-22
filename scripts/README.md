@@ -1,6 +1,6 @@
 # Scripts
 
-Two scripts for installing and maintaining the packages. Run them as your ordinary
+Three scripts for installing, maintaining, and publishing the packages. Run them as your ordinary
 user, not with `sudo`. They find the repository from their own location, so you
 can run them from any directory. See the [root guide](../README.md) for
 prerequisites and terms.
@@ -106,3 +106,36 @@ JSON object instead: `status` (`unchanged`, `updated`, or `update-available`), `
 After an update, review `git diff` and commit it yourself. The release API cannot
 tell whether a new engine still builds with the pinned patch or works with the
 pinned MSVC version. The engine build checks the patch.
+
+## aur-sync
+
+```sh
+./scripts/aur-sync PKG... [--push] [--json]
+```
+
+Copies a package recipe into its AUR checkout under `.cache/aur/PKG` and commits
+any change. `PKG` is `unreal-engine-css-bin` or `satmod`. It pushes only with
+`--push`, and a push publishes, so review the commits first:
+
+```sh
+./scripts/aur-sync unreal-engine-css-bin satmod
+git -C .cache/aur/satmod show --stat
+./scripts/aur-sync unreal-engine-css-bin satmod --push
+```
+
+1. Refuses a package whose directory has uncommitted changes or whose
+   `.SRCINFO` differs from `makepkg --printsrcinfo`.
+2. Clones `aur-jgabor:PKG.git` the first time. `aur-jgabor` is an SSH host alias
+   for `aur@aur.archlinux.org`; set `AUR_REMOTE` to use another prefix. A new
+   package name clones as an empty repository.
+3. Starts from the AUR's `master`, keeping any unpushed commits on top, and
+   removes untracked files such as earlier build output.
+4. Makes the checkout hold exactly the files git tracks in `packages/PKG`,
+   except `README.md`, whose links only work inside this repository.
+5. Commits `Initial import VERSION` or `Update to VERSION` when something
+   changed, and does nothing otherwise.
+
+The output lists each package's version, whether it committed, and how many
+commits are unpushed. With `--json` it is one JSON object with a `packages`
+list. The recipes hold no engine archives, Microsoft tools, or built packages,
+and must never do so.

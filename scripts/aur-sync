@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Copy package recipes into local AUR checkouts, commit, and optionally push."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGES = ("unreal-engine-css-bin", "satmod")
+# Files that only make sense inside this repository.
+LOCAL_ONLY = {"README.md"}
+
+class SyncError(Exception):
+    pass
+
+def run(command, *, cwd=None, check=True):
+    result = subprocess.run(command, cwd=cwd, text=True, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if check and result.returncode != 0:
+        raise SyncError(f"{' '.join(map(str, command[:3]))} failed: {result.stderr.strip()}")
+    return result
+
+def git(*args, cwd, check=True):
+    return run(["git", *args], cwd=cwd, check=check)
+
+def published_files(name):
+    recipe = ROOT / "packages" / name
+    tracked = git("ls-files", "-z", "--", f"packages/{name}", cwd=ROOT).stdout.split("\0")
+    files = sorted(Path(path).relative_to(f"packages/{name}").as_posix() for path in tracked if path)
+    if any("/" in path for path in files):
+        raise SyncError(f"{name}: nested files are not supported")
+    return recipe, [path for path in files if path not in LOCAL_ONLY]
+
+def check_recipe(name, recipe, files):
+    if git("status", "--porcelain", "--", f"packages/{name}", cwd=ROOT).stdout.strip():
+        raise SyncError(f"{name}: packages/{name} has uncommitted changes; commit them first")
+    for required in ("PKGBUILD", ".SRCINFO"):
+        if required not in files:
+            raise SyncError(f"{name}: {required} is not tracked")
+    srcinfo = run(["makepkg", "--printsrcinfo"], cwd=recipe).stdout
+    if srcinfo != (recipe / ".SRCINFO").read_text():
+        raise SyncError(f"{name}: .SRCINFO is stale; run makepkg --printsrcinfo > .SRCINFO")
+    info = dict(line.strip().split(" = ", 1) for line in srcinfo.splitlines() if " = " in line)
+    if info.get("pkgbase") != name:
+        raise SyncError(f"{name}: .SRCINFO names pkgbase {info.get('pkgbase')}")
+    return f"{info['pkgver']}-{info['pkgrel']}"
+
+def checkout(name, remote):
+    work = ROOT / ".cache/aur" / name
+    if not (work / ".git").is_dir():
+        work.parent.mkdir(parents=True, exist_ok=True)
+        git("clone", "--quiet", f"{remote}{name}.git", str(work), cwd=work.parent)
+    git("fetch", "--quiet", "origin", cwd=work)
+    git("symbolic-ref", "HEAD", "refs/heads/master", cwd=work)
+    head = git("rev-parse", "--verify", "--quiet", "HEAD", cwd=work, check=False).returncode == 0
+    remote_head = git("rev-parse", "--verify", "--quiet", "origin/master", cwd=work,
+                      check=False).returncode == 0
+    # Keep unpushed commits on top of the AUR state; otherwise start from the AUR.
+    # A new package name clones as an empty repository.
+    if remote_head and not (head and git("merge-base", "--is-ancestor", "origin/master", "HEAD",
+                                         cwd=work, check=False).returncode == 0):
+        git("reset", "--quiet", "--hard", "origin/master", cwd=work)
+    elif head:
+        git("reset", "--quiet", "--hard", "HEAD", cwd=work)
+    git("clean", "--quiet", "-fdx", cwd=work)
+    return work
+
+def sync(name, remote, push):
+    recipe, files = published_files(name)
+    version = check_recipe(name, recipe, files)
+    work = checkout(name, remote)
+    for path in git("ls-files", "-z", cwd=work).stdout.split("\0"):
+        if path and path not in files:
+            git("rm", "--quiet", "--", path, cwd=work)
+    for path in files:
+        shutil.copy2(recipe / path, work / path)
+    git("add", "--", *files, cwd=work)
+    first = git("rev-parse", "--verify", "--quiet", "HEAD", cwd=work, check=False).returncode != 0
+    changed = first or git("diff", "--cached", "--quiet", cwd=work, check=False).returncode != 0
+    if changed:
+        message = ("Initial import " if first else "Update to ") + version
+        git("commit", "--quiet", "-m", message, cwd=work)
+    ahead = git("rev-list", "--count", "origin/master..HEAD", cwd=work, check=False)
+    unpushed = int(ahead.stdout.strip()) if ahead.returncode == 0 else 1
+    if push and unpushed:
+        git("push", "--quiet", "origin", "master", cwd=work)
+        unpushed = 0
+    return {"package": name, "version": version, "checkout": str(work), "committed": changed,
+            "commit": git("rev-parse", "HEAD", cwd=work).stdout.strip(), "files": files,
+            "pushed": push and not unpushed, "unpushed": unpushed}
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Copy package recipes into .cache/aur/PKG, commit any change, and push "
+                    "only with --push. Review the commits before pushing: a push publishes.",
+        epilog="AUR_REMOTE sets the remote prefix (default aur-jgabor:, an SSH host alias).")
+    parser.add_argument("packages", nargs="+", choices=PACKAGES, metavar="PKG",
+                        help="package to sync: " + ", ".join(PACKAGES))
+    parser.add_argument("--push", action="store_true", help="push new commits to the AUR")
+    parser.add_argument("--json", action="store_true", help="print a JSON summary")
+    args = parser.parse_args()
+    remote = os.environ.get("AUR_REMOTE") or "aur-jgabor:"
+    results = []
+    try:
+        for name in args.packages:
+            results.append(sync(name, remote, args.push))
+    except (SyncError, OSError) as error:
+        print(f"aur-sync: {error}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"status": "error", "error": str(error), "packages": results},
+                             sort_keys=True))
+        return 1
+    if args.json:
+        print(json.dumps({"status": "complete", "packages": results}, sort_keys=True))
+    else:
+        for result in results:
+            state = ("pushed" if result["pushed"] else
+                     f"{result['unpushed']} unpushed commit(s)" if result["unpushed"] else "up to date")
+            print(f"{result['package']} {result['version']}: "
+                  f"{'committed' if result['committed'] else 'no change'}, {state} "
+                  f"({result['checkout']})")
+            print("  " + " ".join(result["files"]))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

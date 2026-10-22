@@ -1,4 +1,4 @@
-# Maintainer: Jonathan Gabor
+# Maintainer: Jonathan Gabor <jgabor@users.noreply.github.com>
 # makepkg reads metadata and supplies srcdir/pkgdir.
 # shellcheck disable=SC2034,SC2154
 pkgname=unreal-engine-css-bin
