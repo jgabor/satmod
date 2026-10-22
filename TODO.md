@@ -196,8 +196,23 @@ Git history has the details.
   user-owned files, about 3,400 of them without group write under umask 022.
 - [x] Add engine optdepends: `vulkan-driver` for the editor and `glu` for CAD
   import (pkgrel 5).
-- [ ] Test package removal, and confirm user data survives. Upgrade over the
-  hand-modified install and later releases already worked.
+- [x] Test package removal, and confirm user data survives (2026-10-22). Upgrade
+  over the hand-modified install and later releases already worked.
+  - `satisfactory-modding-setup` on this machine: `pacman -Rsp` showed `-Rns`
+    takes nothing else here. `pacman -Rns` removed the CLI and
+    `/usr/share/satisfactory-modding-setup` and left all 59,289 entries under the
+    config, data, cache, and wwise-cli directories, `~/.unrealrc`, and
+    `Install.ini` unchanged. The staged MSVC `cl` still ran without the package.
+    Reinstalling 1.0.0-8 passed `doctor`; only Wine prefix timestamps from that
+    `cl` run differed.
+  - `unreal-engine-css-bin` in a throwaway chroot copy, to leave the engine in
+    daily use alone: a group member registered the engine, built into
+    `Engine/Intermediate`, and overwrote a package file. `pacman -R` removed all
+    245,193 package paths, including the overwritten file, and the license. Only
+    the member's build output (664, its group kept) and its four directories
+    stayed, along with the group. The member's home was unchanged. Reinstalling
+    over the leftovers reported no conflicts, restored the overwritten file, kept
+    the build output, and the hook made everything group-writable again.
 
 Not planned, to keep verification proportionate: forced failure runs (missing
 repository access, a missing archive part, a corrupted download), a bootstrap
@@ -216,8 +231,8 @@ in as issues.
 - [x] One run of `satisfactory-modding setup` installs the pinned MSVC/SDK,
   configures `UE_WINE_MSVC`, and registers the engine without prompts. Based on
   the user's report.
-- [ ] Repeat setup runs and package upgrade or removal keep unrelated user state.
-  Reruns and upgrades are done; removal is not.
+- [x] Repeat setup runs and package upgrade or removal keep unrelated user state.
+  Reruns, upgrades, and removal are done.
 - [x] The docs give a tested path from repository access through Project Setup
   with `project init`. No clean-machine run is planned: the setup is in daily
   use for the mod in `~/git/satisfactory-sync`, and problems will come in as
