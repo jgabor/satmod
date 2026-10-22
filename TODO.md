@@ -285,8 +285,12 @@ After the completion criteria are met:
   `REUSE.toml` that marks Epic's notice and the patch as
   `LicenseRef-UnrealEngine`. satmod ships its script in the AUR repository, so
   one PKGBUILD serves bootstrap and the AUR.
-- [ ] Push both AUR repositories with `scripts/aur-sync unreal-engine-css-bin satmod
-  --push`, after `jgabor/satmod` is public (satmod's `url` points there). Never
-  publish engine archives, Microsoft tools, or built packages.
+- [x] Publish both AUR repositories (2026-10-22). `jgabor/satmod` went public
+  first, after a history scan found only placeholder and fixture values. Then
+  `scripts/aur-sync unreal-engine-css-bin satmod --push` pushed
+  `unreal-engine-css-bin` 5.6.1.css83-5 and `satmod` 1.0.0-1 under `aur-jgabor`.
+  Never publish engine archives, Microsoft tools, or built packages.
 - [ ] Explain the authenticated download and license terms on each package page.
+  The pinned comments are drafted and approved; the user posts and pins them on
+  both AUR pages.
 - [ ] Set up a reviewed process for engine updates and for user feedback.
