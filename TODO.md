@@ -132,10 +132,34 @@ Git history has the details.
 
 ## Open verification
 
-- [ ] Build both packages in a clean Arch chroot with prefetched engine parts.
-- [ ] Run namcap on the built engine package. No built engine package was on disk
-  on 2026-10-22, so this waits for the chroot build. namcap on both recipes and
-  on `satisfactory-modding-setup` 1.0.0-8 found nothing to fix:
+- [x] Build both packages in a clean Arch chroot with prefetched engine parts
+  (2026-10-22). `mkarchroot` with devtools' Arch `[core]`/`[extra]` config and
+  `makechrootpkg`, with the four parts hardlinked into a separate SRCDEST and
+  zstd at its default level instead of `--ultra -20`. The engine
+  (5.6.1.css83-5) built in about 5 minutes, and the setup package (1.0.0-8) built
+  with it installed via `-I`, matching the host build's files, modes, and sizes.
+  Installing the engine there ran the new hook without warnings: all 33,103
+  directories got `default:group::rwx` and setgid, only directories got default
+  ACL entries, and every file was group-writable in group `unreal-engine-css`.
+- [x] Run namcap on both recipes and both built packages. Nothing to fix.
+  Engine package (css83-5), all expected for a prebuilt engine under `/opt`:
+  - Setgid on all 33,103 directories and libraries that are not 644: the
+    group-writable design.
+  - Unstripped, no full RELRO or PIE, three executable stacks (`zen`,
+    `zenserver`, a TechSoft library), and `ELF files outside of a valid path`:
+    upstream binaries, packaged as shipped with `!strip`.
+  - "Insecure RPATH": mostly relative `${ORIGIN}` paths. A few upstream
+    libraries have absolute build-machine paths (`/src/build/...`, `/Stage/...`,
+    and `/tmp/dependencies/...` in musl-only files glibc never loads) or an empty
+    entry (`libNNEEditorOnnxTools.so` and two TechSoft libraries). Left as Epic
+    ships them.
+  - "Dependency detected and not included": the engine bundles Python 3.11,
+    embree, oneTBB, and OpenSSL 1.1, and namcap matched the host's copies. The
+    rest are 32-bit, Android, or Java files, the clang sysroot, or optional
+    Python modules (`libcrypt.so.1` for `_crypt`; see the next item).
+  - "Dependency included, but may not be needed" for `bash`, `xdg-utils`, and
+    `acl`: scripts and the install hook use them.
+  Setup package and recipes:
   - Both recipes: only "Missing Contributor tag", which is informational.
   - "Referenced library bash/sh/perl/python3 is an uninstalled dependency" and
     "Script link detected": namcap does not resolve `#!/usr/bin/env` shebangs.
@@ -150,13 +174,16 @@ Git history has the details.
   `satisfactory-modding-setup` 1.0.0-8: every entry is root:root, directories
   755, files 644 or 755, nothing group- or world-writable, no setuid, no
   dangling symlinks, and every tool the CLI requires belongs to a declared
-  dependency. The engine was checked as installed, since no built package was on
-  disk: root owns its files apart from those builds rewrote (below), the hook
-  set group `unreal-engine-css` on all of them, directories are 2775, and
-  nothing is world-writable or setuid. Every NEEDED
-  library of its x86_64 Linux ELF files resolves inside the dependency closure,
-  except optional ones: `libGLU.so.1` for TechSoft CAD import, and old sonames
-  for a few bundled Python modules (bz2, gdbm, curses, readline). The rest are
+  dependency. The installed engine: root owns its files apart from those builds
+  rewrote (below), the hook set group `unreal-engine-css` on all of them,
+  directories are 2775, and nothing is world-writable or setuid. The built
+  css83-5 package from the chroot has only root:root entries, 2775 engine
+  directories, group-writable files, no world-writable or setuid files, no
+  absolute symlinks, and no `LiveLinkHub`. (The css83-4 package in
+  `.cache/engine-recipe` was overlooked at first.) Every NEEDED library of the
+  engine's x86_64 Linux ELF files resolves inside the dependency closure, except
+  optional ones: `libGLU.so.1` for TechSoft CAD import, and old sonames for a few
+  bundled Python modules (bz2, crypt, gdbm, curses, readline). The rest are
   Android, ARM, musl, or 32-bit files. The editor ships its own Vulkan loader.
 - [x] Keep files that builds create group-writable. The engine hook sets a default
   group ACL on every directory and runs `chmod -R g+w`; `acl` is a new dependency.
@@ -178,8 +205,8 @@ in as issues.
 
 ## Completion criteria
 
-- [ ] Both packages build and install with normal Arch tooling. Built and
-  installed on this machine; a clean chroot build is still open.
+- [x] Both packages build and install with normal Arch tooling. Built and
+  installed on this machine, and built in a clean Arch chroot on 2026-10-22.
 - [x] Engine inputs are pinned and verified, and authenticated downloads work.
 - [x] One run of `satisfactory-modding setup` installs the pinned MSVC/SDK,
   configures `UE_WINE_MSVC`, and registers the engine without prompts. Based on
