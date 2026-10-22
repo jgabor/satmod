@@ -244,10 +244,27 @@ in as issues.
 
 After the completion criteria are met:
 
-- [ ] Recheck package names against the
+- [x] Recheck package names against the
   [Arch package guidelines](https://wiki.archlinux.org/title/Arch_package_guidelines),
-  [nonfree package guidelines](https://wiki.archlinux.org/title/Nonfree_applications_package_guidelines),
-  and [AUR submission guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines).
+  [nonfree package guidelines](https://manual.archlinux.page/package-guidelines/non-free/),
+  and [AUR submission guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)
+  (2026-10-22). Both names stand:
+  - Neither name is taken in the AUR or the official repositories, and both use
+    only lowercase letters and hyphens.
+  - `unreal-engine-css-bin`: the AUR requires `-bin` for prebuilt deliverables
+    when the sources exist, and the CSS engine source is in
+    `satisfactorymodding/UnrealEngine` (private, behind Epic account linking).
+    It follows the existing `unreal-engine`, `unreal-engine-bin`, and
+    `unreal-engine-src-5.x` pattern. It installs to `/opt/unreal-engine-css`, so
+    it neither conflicts with nor provides those packages. The nonfree
+    guidelines allow `/opt` for a directory a group writes into, which is this
+    design. `vercmp` orders `5.6.1.css83` before `css84`, `css100`, and later
+    engine versions.
+  - `satisfactory-modding-setup`: built from pinned sources, so no suffix. It
+    does not collide with the `satisfactory-mod-manager*` packages.
+- [ ] Before submitting `satisfactory-modding-setup`, update its metadata: `pkgdesc`
+  still says only "MSVC/Wine setup" although the CLI also does Project Setup and
+  mod builds, and `url` points at the ficsit.app guide rather than this project.
 - [ ] Create one AUR repository per package with its `.SRCINFO`, license, and
   helper files. Never publish engine archives, Microsoft tools, or built packages.
 - [ ] Explain the authenticated download and license terms on each package page.
