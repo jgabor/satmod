@@ -1097,3 +1097,194 @@ class ProjectInitTests(ProjectFixture):
             self.assertFalse(cli.integration_ready(self.project, OLD_PLUGIN))
             self.assertEqual(self.invoke()[0], 0)
 
+
+class ProjectUpdateTests(ProjectFixture):
+    def setUp(self):
+        super().setUp()
+        install = self.home / '.config/Epic/UnrealEngine/Install.ini'
+        install.parent.mkdir(parents=True)
+        install.write_text(f'[Installations]\nUE_5.6.1-CSS={cli.ENGINE}\n')
+        code, output, error = self.invoke()
+        self.assertEqual(code, 0, error)
+        self.record.unlink()
+        self.old_head = self.head()
+        # Upstream drops the BOM and adds a section, as SML did with the Wwise 2025 update.
+        self.new_ini = self.ini.removeprefix(b'\xef\xbb\xbf') + b'[/Script/WwisePackaging.WwisePackagingSettings]\r\nbPackageAsBulkData=True\r\n'
+
+    def update(self, *extra, json_output=True):
+        return self.invoke(*extra, json_output=json_output, command='update')
+
+    def head(self):
+        return subprocess.run([shutil.which('git'), '-C', str(self.project), 'rev-parse', 'HEAD'], check=True,
+                              stdout=subprocess.PIPE, text=True).stdout.strip()
+
+    def upstream_wwise_update(self):
+        self.commit({'Config/DefaultGame.ini': self.new_ini,
+                     '.github/workflows/build.yml': build_yml(NEW_SDK, NEW_INTEGRATION).encode(),
+                     'Source/FGGameState.h': b'class AFGGameState;\n'}, 'Update headers and Wwise')
+
+    def separate(self, data):
+        return data.replace(b'AudioRouting=Custom\r\n[After]', b'AudioRouting=Separate\r\n[After]')
+
+    def test_update_fast_forwards_and_replaces_wwise_then_skips(self):
+        self.upstream_wwise_update()
+        stale = self.project / 'Plugins/Wwise/Source/Removed.h'
+        stale.parent.mkdir(parents=True); stale.write_text('old')
+        code, output, error = self.update()
+        self.assertEqual(code, 0, error)
+        result = json.loads(output)
+        steps = {s['id']: s for s in result['steps']}
+        self.assertEqual([s['id'] for s in result['steps']], ['checkout', 'wwise-cli', 'wwise-download', 'wwise-integrate',
+                                                             'wwise-project', 'soundbanks', 'audio-routing'])
+        self.assertEqual([s['status'] for s in result['steps']], ['done', 'skipped'] + ['done'] * 5)
+        self.assertIn(f'replaced {OLD_PLUGIN}', steps['wwise-integrate']['detail'])
+        self.assertIn(f'migrated from {OLD_SDK}', steps['wwise-project']['detail'])
+        self.assertEqual(self.head(), self.git_head_of_origin())
+        self.assertEqual((self.project / 'Config/DefaultGame.ini').read_bytes(), self.separate(self.new_ini))
+        self.assertTrue((self.project / 'Source/FGGameState.h').is_file())
+        self.assertFalse(stale.exists())
+        self.assertTrue(cli.integration_ready(self.project, NEW_PLUGIN))
+        wproj = self.project / cli.WWISE_PROJECT_NAME / (cli.WWISE_PROJECT_NAME + '.wproj')
+        self.assertEqual(cli.wproj_version(wproj), NEW_SDK)
+        self.assertEqual(cli.soundbanks_version(wproj.parent / 'GeneratedSoundBanks'), NEW_SDK)
+        old = [cli.cache_home() / 'wwise-cli/wwise' / OLD_SDK, cli.cache_home() / 'wwise-cli/unrealintegration' / OLD_INTEGRATION]
+        self.assertEqual([c['path'] for c in result['old_caches']], [str(path) for path in old])
+        self.assertTrue(all(path.is_dir() for path in old))
+        calls = self.calls()
+        wine = [c['argv'][1] for c in calls if c['name'] == 'wine']
+        self.assertEqual(wine, ['migrate', 'generate-soundbank'])
+        for call in calls:
+            self.assertNotIn('secret', json.dumps(call['argv']))
+            if call['name'] != 'wwise-cli':
+                for key in CREDENTIAL_NAMES:
+                    self.assertNotIn(key, call['env'])
+        self.assertNotIn('secret', output + error)
+        status = subprocess.run([shutil.which('git'), '-C', str(self.project), 'status', '--porcelain'],
+                                check=True, stdout=subprocess.PIPE, text=True).stdout
+        self.assertEqual(status, ' M Config/DefaultGame.ini\n')
+        self.record.unlink()
+        code, output, error = self.update(json_output=False)
+        self.assertEqual(code, 0, error)
+        self.assertEqual(output.count(': skipped'), 7)
+        self.assertIn('old Wwise caches kept', output)
+        self.assertEqual({c['name'] for c in self.calls()}, {'git'})
+
+    def git_head_of_origin(self):
+        return subprocess.run([shutil.which('git'), '-C', str(self.origin), 'rev-parse', 'master'], check=True,
+                              stdout=subprocess.PIPE, text=True).stdout.strip()
+
+    def test_current_project_skips_every_step(self):
+        code, output, error = self.update()
+        self.assertEqual(code, 0, error)
+        result = json.loads(output)
+        self.assertEqual([s['status'] for s in result['steps']], ['skipped'] * 7)
+        self.assertEqual(result['old_caches'], [])
+        self.assertEqual({c['name'] for c in self.calls()}, {'git'})
+
+    def test_bom_already_removed_is_tool_owned(self):
+        path = self.project / 'Config/DefaultGame.ini'
+        path.write_bytes(path.read_bytes().removeprefix(b'\xef\xbb\xbf'))
+        self.upstream_wwise_update()
+        code, output, error = self.update()
+        self.assertEqual(code, 0, error)
+        self.assertEqual(path.read_bytes(), self.separate(self.new_ini))
+
+    def test_resume_after_failed_integration(self):
+        self.upstream_wwise_update()
+        with patch.dict(os.environ, {'FAKE_WWISE_FAIL': 'integrate-ue'}):
+            code, output, error = self.update()
+        self.assertEqual(code, 1); self.assertIn('wwise-cli integrate-ue failed', error)
+        self.assertEqual(self.head(), self.git_head_of_origin())
+        self.assertFalse((self.project / 'Plugins/Wwise').exists())
+        code, output, error = self.update()
+        self.assertEqual(code, 0, error)
+        statuses = {s['id']: s['status'] for s in json.loads(output)['steps']}
+        self.assertEqual(statuses['checkout'], 'skipped')
+        self.assertEqual(statuses['wwise-download'], 'skipped')
+        self.assertEqual(statuses['wwise-integrate'], 'done')
+        self.assertEqual(statuses['audio-routing'], 'done')
+        self.assertTrue(cli.integration_ready(self.project, NEW_PLUGIN))
+
+    def test_failed_merge_keeps_audio_routing(self):
+        self.upstream_wwise_update()
+        # An untracked file in the way makes git refuse the fast-forward.
+        (self.project / 'Source').mkdir(exist_ok=True)
+        (self.project / 'Source/FGGameState.h').write_text('mine')
+        before = (self.project / 'Config/DefaultGame.ini').read_bytes()
+        code, output, error = self.update()
+        self.assertEqual(code, 1); self.assertIn('git merge failed', error)
+        self.assertEqual(self.head(), self.old_head)
+        self.assertEqual((self.project / 'Config/DefaultGame.ini').read_bytes(), before)
+        self.assertEqual((self.project / 'Source/FGGameState.h').read_text(), 'mine')
+
+    def test_failed_migration_is_reported(self):
+        self.upstream_wwise_update()
+        with patch.dict(os.environ, {'FAKE_MIGRATE_NOOP': '1'}):
+            code, output, error = self.update()
+        self.assertEqual(code, 1); self.assertIn('did not migrate the Wwise project', error)
+
+    def assert_refused(self, message):
+        code, output, error = self.update()
+        self.assertEqual(code, 1, output)
+        self.assertEqual(output, '')
+        self.assertIn(message, error)
+        self.assertNotIn('Traceback', error)
+        self.assertEqual(self.head(), self.old_head)
+        self.assertNotIn('wwise-cli', [c['name'] for c in self.calls()])
+
+    def test_refuses_without_changing_anything(self):
+        project = self.project
+        git = lambda *args: subprocess.run([shutil.which('git'), '-C', str(project), *args], check=True,
+                                           stdout=subprocess.DEVNULL)
+        self.upstream_wwise_update()
+        ini = project / 'Config/DefaultGame.ini'
+        current = ini.read_bytes()
+        with self.subTest('foreign change in a tracked file'):
+            (project / 'FactoryGame.uproject').write_text('{"EngineAssociation": "5.6.1-CSS", "Mine": 1}')
+            self.assert_refused('FactoryGame.uproject')
+            git('checkout', '--', 'FactoryGame.uproject')
+        with self.subTest('other DefaultGame.ini change'):
+            ini.write_bytes(current + b'Mine=1\r\n')
+            self.assert_refused('changes besides AudioRouting=Separate')
+            self.assertEqual(ini.read_bytes(), current + b'Mine=1\r\n')
+            ini.write_bytes(current)
+        with self.subTest('staged DefaultGame.ini change'):
+            git('add', 'Config/DefaultGame.ini')
+            self.assert_refused('Config/DefaultGame.ini')
+            git('reset', '--quiet', '--', 'Config/DefaultGame.ini')
+        with self.subTest('local commit'):
+            (project / 'Local.txt').write_text('mine')
+            git('add', 'Local.txt'); git('commit', '--quiet', '-m', 'Mine')
+            local = self.head()
+            self.old_head = local
+            self.assert_refused('HEAD has commits')
+            git('reset', '--quiet', '--hard', 'HEAD~1')
+            ini.write_bytes(current)
+            self.old_head = self.head()
+        with self.subTest('unknown ref'):
+            code, output, error = self.update('--ref', 'origin/missing')
+            self.assertEqual(code, 1); self.assertIn('Unknown ref: origin/missing', error)
+        self.assertEqual(ini.read_bytes(), current)
+
+    def test_refuses_engine_change(self):
+        self.commit({'FactoryGame.uproject': b'{"EngineAssociation": "5.7.0-CSS"}'}, 'New engine')
+        self.assert_refused('engine changes are out of scope')
+
+    def test_refuses_unreadable_versions(self):
+        self.commit({'.github/workflows/build.yml': b'jobs: {}\n'}, 'Drop Wwise')
+        self.assert_refused('Expected one wwise-cli download')
+
+    def test_refuses_target_without_expected_audio_settings(self):
+        self.commit({'Config/DefaultGame.ini': self.ini.replace(b'AudioRouting=Custom\r\n[After]', b'[After]')}, 'Drop routing')
+        self.assert_refused('AudioRouting')
+
+    def test_refuses_non_projects(self):
+        self.project = self.home / 'empty'
+        self.project.mkdir()
+        code, output, error = self.update()
+        self.assertEqual(code, 1); self.assertIn('Not a Starter Project', error)
+        self.project = self.home / "project with 'quotes'" / 'Mods'
+        self.project.mkdir(exist_ok=True)
+        (self.project / 'FactoryGame.uproject').write_text('{}')
+        code, output, error = self.update()
+        self.assertEqual(code, 1); self.assertIn('Not the top of a git checkout', error)

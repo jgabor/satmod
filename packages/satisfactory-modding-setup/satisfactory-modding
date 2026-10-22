@@ -3,6 +3,7 @@
 
 import argparse
 import configparser
+import contextlib
 import json
 import grp
 import pwd
@@ -779,6 +780,78 @@ def init_project(args):
     return {"status": "complete", "project": str(project), "steps": steps}
 
 
+def tree_size(path):
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(root, name)).st_size
+    return total
+
+
+def update_project(args):
+    project = Path(args.directory).expanduser().resolve()
+    require((project / "FactoryGame.uproject").is_file(), f"Not a Starter Project: {project}")
+    top = git(project, "rev-parse", "--show-toplevel", check=False)
+    require(top.returncode == 0 and Path(top.stdout.decode().strip()).resolve() == project,
+            f"Not the top of a git checkout: {project}")
+    # Checks before the checkout step leave the work tree alone; fetch updates remote refs.
+    git(project, "fetch", "origin")
+    resolved = git(project, "rev-parse", "--verify", "--quiet", f"{args.ref}^{{commit}}", check=False)
+    require(resolved.returncode == 0, f"Unknown ref: {args.ref}")
+    target = resolved.stdout.decode().strip()
+    head = git(project, "rev-parse", "HEAD").stdout.decode().strip()
+    if git(project, "merge-base", "--is-ancestor", "HEAD", target, check=False).returncode != 0:
+        local = git(project, "log", "--oneline", f"{target}..HEAD").stdout.decode().strip()
+        raise SetupError(f"HEAD has commits that {args.ref} does not have; rebase or remove them first:\n{local}")
+    ini = "Config/DefaultGame.ini"
+    changes = [entry for entry in git(project, "status", "--porcelain=v1", "-z", "--untracked-files=no")
+               .stdout.decode().split("\0") if entry]
+    foreign = [entry[3:] for entry in changes if entry != f" M {ini}"]
+    require(not foreign, "Local changes the update would not keep; commit or remove them first: " + ", ".join(foreign))
+    if changes:
+        original = git(project, "show", f"HEAD:{ini}").stdout
+        # Only the routing value this tool sets, and a dropped BOM, may differ from HEAD.
+        forms = {original, original.removeprefix(b"\xef\xbb\xbf")}
+        forms |= {separate_routing(form, ini) for form in forms}
+        require((project / ini).read_bytes() in forms,
+                f"{project / ini} has changes besides AudioRouting=Separate; commit or remove them first")
+    separate_routing(git(project, "show", f"{target}:{ini}").stdout, f"{args.ref}:{ini}")
+    try:
+        association = json.loads(git(project, "show", f"{target}:FactoryGame.uproject").stdout)["EngineAssociation"]
+    except (ValueError, KeyError, TypeError) as error:
+        raise SetupError(f"Cannot read EngineAssociation from {args.ref}:FactoryGame.uproject") from error
+    installations = read_ini(Path.home() / ".config/Epic/UnrealEngine/Install.ini")
+    registered = installations.get("Installations", f"UE_{association}", fallback="")
+    require(registered.rstrip("/") == str(ENGINE),
+            f"{args.ref} needs engine {association}, which is not the installed {ENGINE}; "
+            "engine changes are out of scope for project update")
+    source = f"{args.ref}:{BUILD_WORKFLOW}"
+    versions = wwise_versions(git(project, "show", f"{target}:{BUILD_WORKFLOW}").stdout.decode(), source)
+    steps = []
+    def record(id, status, detail):
+        steps.append({"id": id, "status": status, "detail": detail})
+    if head == target:
+        record("checkout", "skipped", f"already at {target[:10]}")
+    else:
+        if changes:
+            git(project, "checkout", "HEAD", "--", ini)
+        try:
+            git(project, "merge", "--ff-only", "--quiet", target)
+        except SetupError:
+            # Leave a working project with the routing it had.
+            audio_routing(project, write=True)
+            raise
+        record("checkout", "done", f"{head[:10]} -> {target[:10]}")
+    wwise_steps(project, versions, args.wwise_cli, record)
+    sdk, integration, _ = versions
+    old = [path for name, keep in (("wwise", sdk), ("unrealintegration", integration))
+           for path in sorted((cache_home() / "wwise-cli" / name).glob("*"))
+           if path.is_dir() and path.name != keep]
+    return {"status": "complete", "project": str(project), "steps": steps,
+            "old_caches": [{"path": str(path), "bytes": tree_size(path)} for path in old]}
+
+
 def build_mod(args):
     project = project_file(args.project)
     plugin = find_mod(project, args.ref)
@@ -973,12 +1046,15 @@ def main():
     run_parser.add_argument("command", nargs=argparse.REMAINDER, metavar="COMMAND")
     doctor_parser = commands.add_parser("doctor", help="check the installation without changing it")
     doctor_parser.add_argument("--json", action="store_true")
-    project_parser = commands.add_parser("project", help="initialize a Starter Project")
+    project_parser = commands.add_parser("project", help="initialize or update a Starter Project")
     projects = project_parser.add_subparsers(dest="project_command", required=True)
     init_parser = projects.add_parser("init", help="clone and configure the Starter Project and Wwise")
-    init_parser.add_argument("directory", metavar="DIR")
-    init_parser.add_argument("--wwise-cli", metavar="PATH")
-    init_parser.add_argument("--json", action="store_true")
+    update_parser = projects.add_parser("update", help="fast-forward the Starter Project and update Wwise to match")
+    for command in (init_parser, update_parser):
+        command.add_argument("directory", metavar="DIR")
+        command.add_argument("--wwise-cli", metavar="PATH")
+        command.add_argument("--json", action="store_true")
+    update_parser.add_argument("--ref", default="origin/master", help="commit to update to; default: origin/master")
     mod_parser = commands.add_parser("mod", help="create and build mods without the editor")
     mods = mod_parser.add_subparsers(dest="mod_command", required=True)
     build_parser = mods.add_parser("build", help="build and package a Windows client mod")
@@ -1013,9 +1089,14 @@ def main():
                     print(f"{check['id']}: {check['status']}: {check['message']}")
             return 0 if result["status"] == "ok" else 1
         if args.subcommand == "project":
-            result = init_project(args)
+            result = init_project(args) if args.project_command == "init" else update_project(args)
             if args.json:
                 print(json.dumps(result, sort_keys=True))
+            elif args.project_command == "update":
+                decisions = "; ".join(f"{s['id']}: {s['status']} ({s['detail']})" for s in result["steps"])
+                caches = ", ".join(f"{c['path']} ({c['bytes'] / 1e9:.1f} GB)" for c in result["old_caches"])
+                print(f"Project updated: {result['project']}; {decisions}" +
+                      (f"; old Wwise caches kept, remove them by hand to free space: {caches}" if caches else ""))
             else:
                 decisions = "; ".join(f"{s['id']}: {s['status']} ({s['detail']})" for s in result["steps"])
                 print(f"Project complete: {result['project']}; {decisions}; manual: install Rider plugin "

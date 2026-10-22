@@ -29,7 +29,7 @@ pkgbase = satisfactory-modding-setup
 	source = satisfactory-modding
 	source = LICENSE
 	sha256sums = 0747197e8ff04749137978c02bada973c4bad2c6844c48909ae4217086fc7867
-	sha256sums = 7fe336b1facbb90a3ae30b9a1e20075ef504414e333b0f039642c18573a356e7
+	sha256sums = 8c66f01ba3dba55a17a233511349ae4f3ce0ef9a1bd5b19726b98a946309cbc8
 	sha256sums = 2c50315092a261a88be9569e534c24b56b08606dde657263e8728f711263e58e
 
 pkgname = satisfactory-modding-setup
