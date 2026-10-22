@@ -695,6 +695,16 @@ def remove_wwise_plugins(project):
         shutil.rmtree(path)
 
 
+def remove_soundbanks(project, banks):
+    """Remove generated soundbanks; generate-soundbank writes over files and never deletes."""
+    if not banks.exists() and not banks.is_symlink():
+        return
+    require(not banks.is_symlink() and banks.is_dir(), f"Refusing to remove {banks}: not a directory")
+    tracked = git(project, "ls-files", "--", banks.relative_to(project)).stdout
+    require(not tracked, f"Refusing to remove {banks}: git tracks files in it")
+    shutil.rmtree(banks)
+
+
 def wwise_access(project, versions, wwise_cli):
     """Get wwise-cli and check that it can authenticate, before anything changes."""
     sdk, _, plugin = versions
@@ -760,6 +770,7 @@ def wwise_steps(project, versions, access, record):
             require(wproj_version(wproj) == sdk,
                     f"WwiseConsole did not {'create' if create else 'migrate'} the Wwise project for {sdk}")
         if generate:
+            remove_soundbanks(project, banks)
             managed_command([WINE, console, "generate-soundbank", windows_path], project, extra_env=wine_env)
             require((banks / "Windows/Init.bnk").is_file() and soundbanks_version(banks) == sdk,
                     f"WwiseConsole did not produce Windows/Init.bnk and ProjectInfo.xml for {sdk}")
@@ -855,7 +866,13 @@ def update_project(args):
             audio_routing(project, write=True)
             raise
         record("checkout", "done", f"{head[:10]} -> {target[:10]}")
-    wwise_steps(project, versions, access, record)
+    try:
+        wwise_steps(project, versions, access, record)
+    except SetupError:
+        # Do not leave upstream's routing behind until the next run; report the Wwise error.
+        with contextlib.suppress(SetupError):
+            audio_routing(project, write=True)
+        raise
     sdk, integration, _ = versions
     old = [path for name, keep in (("wwise", sdk), ("unrealintegration", integration))
            for path in sorted((cache_home() / "wwise-cli" / name).glob("*"))

@@ -57,7 +57,10 @@ It then:
 4. Creates `SatisfactoryModLoader_WwiseProject/SatisfactoryModLoader_WwiseProject.wproj`,
    or migrates it with WwiseConsole when its `WwiseVersion` is older, then
    generates Windows soundbanks when `GeneratedSoundBanks/ProjectInfo.xml` names
-   another version. WwiseConsole runs under the managed Wine environment.
+   another version or `Windows/Init.bnk` is missing. It first removes
+   `GeneratedSoundBanks`, because generate-soundbank never deletes old files, and
+   refuses if git tracks files in it. WwiseConsole runs under the managed Wine
+   environment.
 5. Sets only AkSettings `AudioRouting=Separate` in `Config/DefaultGame.ini`,
    preserving the BOM, line endings, file mode, and other settings through atomic
    replacement. It checks the tracked
@@ -116,7 +119,7 @@ first runs `git fetch origin`, then checks, without changing the work tree, that
   credential variables are set, or a terminal is attached for its prompts.
 
 It then restores `DefaultGame.ini`, runs `git merge --ff-only`, and runs the same
-Wwise steps as `project init`. If the merge fails, it puts
+Wwise steps as `project init`. If the merge or a Wwise step fails, it puts
 `AudioRouting=Separate` back before it stops. The steps and output match
 `project init`, with a `checkout` step first. A rerun after a failure resumes,
 and a rerun on a current project skips every step. Old Wwise caches under

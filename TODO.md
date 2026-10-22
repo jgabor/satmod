@@ -56,8 +56,11 @@ Git history has the details.
   - In `~/git/satisfactory-sync`, `E2E=1 client/test-linux.sh` passed. All
     WwisePatches applied to the fresh plugin, the Linux editor and Win64 modules
     built, and 34 automation tests passed. Two had expected warnings.
-  - The old 2023 caches (6.2 GB and 1.1 GB) are kept until the user removes
-    them.
+  - The run and its rerun listed the old 2023 caches (6.2 GB and 1.1 GB) under
+    `old_caches` and kept them. The user had them removed by hand afterwards.
+  - Follow-ups from that run: soundbank generation now first removes
+    `GeneratedSoundBanks`, since two files from the 2023 build outlived the
+    regenerate, and a failed Wwise step now restores `AudioRouting=Separate`.
 
 - **CLI Project Setup (installed 2026-10-11).** `project init DIR`
   clones the Starter Project, verifies and caches pinned wwise-cli, downloads

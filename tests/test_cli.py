@@ -859,10 +859,20 @@ class ProjectInitTests(ProjectFixture):
         self.assertEqual(code, 0, error)
         self.assertEqual([s['status'] for s in json.loads(output)['steps']],
                          ['skipped', 'skipped', 'skipped', 'done', 'skipped', 'done', 'skipped'])
-        # The stale plugin is checked against git before it is replaced.
-        self.assertEqual([c['name'] for c in self.calls()[6:]], ['git', 'git', 'wwise-cli', 'winepath', 'wine'])
+        # The stale plugin and soundbanks are checked against git before they are replaced.
+        self.assertEqual([c['name'] for c in self.calls()[6:]], ['git', 'git', 'wwise-cli', 'winepath', 'git', 'wine'])
         self.assertEqual([c['argv'][-1] for c in self.calls()[6:8]], ['Plugins/Wwise', 'Plugins/WwiseNiagara'])
+        self.assertEqual(self.calls()[10]['argv'][-1], f'{cli.WWISE_PROJECT_NAME}/GeneratedSoundBanks')
         self.assertEqual(self.http.call_count, 1)
+
+    def test_tracked_soundbanks_are_not_removed(self):
+        self.assertEqual(self.invoke()[0], 0)
+        banks = self.project / cli.WWISE_PROJECT_NAME / 'GeneratedSoundBanks'
+        (banks / 'Windows/Init.bnk').unlink()
+        subprocess.run([shutil.which('git'), '-C', str(self.project), 'add', '--force', str(banks)], check=True)
+        code, output, error = self.invoke()
+        self.assertEqual(code, 1); self.assertIn('git tracks files in it', error)
+        self.assertTrue((banks / 'ProjectInfo.xml').is_file())
 
     def test_checksum_failure_cleans_temporary_download(self):
         with patch.object(cli, 'WWISE_CLI_SHA256', '0' * 64):
@@ -1133,6 +1143,10 @@ class ProjectUpdateTests(ProjectFixture):
         self.upstream_wwise_update()
         stale = self.project / 'Plugins/Wwise/Source/Removed.h'
         stale.parent.mkdir(parents=True); stale.write_text('old')
+        # Old banks the new generator does not write again, like the Oct 9 leftovers.
+        old_banks = self.project / cli.WWISE_PROJECT_NAME / 'GeneratedSoundBanks/Windows'
+        (old_banks / 'English(US)').mkdir(parents=True)
+        (old_banks / 'PluginInfo.xml').write_text('old')
         code, output, error = self.update()
         self.assertEqual(code, 0, error)
         result = json.loads(output)
@@ -1146,6 +1160,9 @@ class ProjectUpdateTests(ProjectFixture):
         self.assertEqual((self.project / 'Config/DefaultGame.ini').read_bytes(), self.separate(self.new_ini))
         self.assertTrue((self.project / 'Source/FGGameState.h').is_file())
         self.assertFalse(stale.exists())
+        self.assertFalse((old_banks / 'English(US)').exists())
+        self.assertFalse((old_banks / 'PluginInfo.xml').exists())
+        self.assertTrue((old_banks / 'Init.bnk').is_file())
         self.assertTrue(cli.integration_ready(self.project, NEW_PLUGIN))
         wproj = self.project / cli.WWISE_PROJECT_NAME / (cli.WWISE_PROJECT_NAME + '.wproj')
         self.assertEqual(cli.wproj_version(wproj), NEW_SDK)
@@ -1199,13 +1216,15 @@ class ProjectUpdateTests(ProjectFixture):
         self.assertEqual(code, 1); self.assertIn('wwise-cli integrate-ue failed', error)
         self.assertEqual(self.head(), self.git_head_of_origin())
         self.assertFalse((self.project / 'Plugins/Wwise').exists())
+        ini = self.project / 'Config/DefaultGame.ini'
+        self.assertEqual(ini.read_bytes(), self.separate(self.new_ini))
         code, output, error = self.update()
         self.assertEqual(code, 0, error)
         statuses = {s['id']: s['status'] for s in json.loads(output)['steps']}
         self.assertEqual(statuses['checkout'], 'skipped')
         self.assertEqual(statuses['wwise-download'], 'skipped')
         self.assertEqual(statuses['wwise-integrate'], 'done')
-        self.assertEqual(statuses['audio-routing'], 'done')
+        self.assertEqual(statuses['audio-routing'], 'skipped')
         self.assertTrue(cli.integration_ready(self.project, NEW_PLUGIN))
 
     def test_failed_merge_keeps_audio_routing(self):

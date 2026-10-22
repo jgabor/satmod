@@ -3,7 +3,7 @@
 # shellcheck disable=SC2034,SC2154
 pkgname=satisfactory-modding-setup
 pkgver=1.0.0
-pkgrel=6
+pkgrel=7
 pkgdesc='User-run MSVC/Wine setup for Satisfactory mod development'
 arch=('x86_64')
 url='https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html'
@@ -17,7 +17,7 @@ _commit=61b7cbc8cb9413fec8f0016ef433a90e06c37f54
 source=("msvc-wine-${_commit}.tar.gz::https://codeload.github.com/mircearoata/msvc-wine/tar.gz/${_commit}"
         'satisfactory-modding' 'LICENSE')
 sha256sums=('0747197e8ff04749137978c02bada973c4bad2c6844c48909ae4217086fc7867'
-            'e1016af868ca5d7364fb11d69dd30422b8c55b6573141eaaa1af3bf203e5cac8'
+            'eec1dac37446a2e92ab80f0b53f36624c0a234e8930d2cc17a53933e4f1e1fe1'
             '2c50315092a261a88be9569e534c24b56b08606dde657263e8728f711263e58e')
 
 package() {
