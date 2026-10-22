@@ -53,7 +53,7 @@ Git history has the details.
   - The plugin's `VersionName` is `2025.1.6.9117.4248`.
   - `git status` shows only `AudioRouting=Separate`.
   - The logs had no credentials or signed URLs.
-  - In `~/git/satisfactory-sync`, `E2E=1 client/test-linux.sh` passed. All
+  - In `~/git/satsync`, `E2E=1 client/test-linux.sh` passed. All
     WwisePatches applied to the fresh plugin, the Linux editor and Win64 modules
     built, and 34 automation tests passed. Two had expected warnings.
   - The run and its rerun listed the old 2023 caches (6.2 GB and 1.1 GB) under
@@ -235,7 +235,7 @@ in as issues.
   Reruns, upgrades, and removal are done.
 - [x] The docs give a tested path from repository access through Project Setup
   with `project init`. No clean-machine run is planned: the setup is in daily
-  use for the mod in `~/git/satisfactory-sync`, and problems will come in as
+  use for the mod in `~/git/satsync`, and problems will come in as
   issues.
 
 ## Future
