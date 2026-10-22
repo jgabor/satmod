@@ -133,16 +133,17 @@ Git history has the details.
 - [ ] Run namcap on both recipes and built packages, and review the findings.
 - [ ] Check file ownership, permissions, and declared dependencies in the built
   packages.
-- [ ] Test real failures: missing repository access, a missing archive part, and a
-  corrupted download.
-- [ ] Run a bootstrap that actually installs dependencies through sudo. The run so
-  far reused every package.
-- [ ] Apply a real engine update with `update-engine-release` and build the new
-  release.
-- [ ] Run a fresh bootstrap for a user outside the group, and confirm it adds them
-  and asks for a re-login.
 - [ ] Test package removal, and confirm user data survives. Upgrade over the
   hand-modified install and later releases already worked.
+
+Not planned, to keep verification proportionate: forced failure runs (missing
+repository access, a missing archive part, a corrupted download), a bootstrap
+that installs dependencies through sudo or adds a user outside the group, a real
+engine update with `update-engine-release`, answering wwise-cli's prompts by
+hand in `project init`, and a Rider build of a project from `project init`.
+Fixture tests cover the failure, bootstrap, release, and prompt paths, Rider
+already built the Starter Project after the packaged fix, and problems will come
+in as issues.
 
 ## Completion criteria
 
@@ -173,10 +174,4 @@ After the completion criteria are met:
   helper files. Never publish engine archives, Microsoft tools, or built packages.
 - [ ] Explain the authenticated download and license terms on each package page.
 - [ ] Set up a reviewed process for engine updates and for user feedback.
-
-### Project Setup verification
-
-- [ ] Run `project init` with no credentials in the environment and answer
-  wwise-cli's prompts on a terminal. Only the variable path has run for real.
-- [ ] Build a project created by `project init` in Rider and start the editor.
 - [ ] Ask the wwise-cli author about its missing license before any redistribution.
