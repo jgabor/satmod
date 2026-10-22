@@ -290,9 +290,10 @@ After the completion criteria are met:
   `scripts/aur-sync unreal-engine-css-bin satmod --push` pushed
   `unreal-engine-css-bin` 5.6.1.css83-5 and `satmod` 1.0.0-1 under `aur-jgabor`.
   Never publish engine archives, Microsoft tools, or built packages.
-- [ ] Explain the authenticated download and license terms on each package page.
-  The pinned comments are drafted and approved; the user posts and pins them on
-  both AUR pages.
+- [x] Explain the authenticated download and license terms on each package page
+  (2026-10-22). Each AUR page has one pinned comment: the engine's covers access,
+  size, group write access, registration, and the EULA; satmod's covers setup,
+  the Microsoft terms, Project Setup with Wwise, daily commands, and removal.
 - [x] Set up a reviewed process for engine updates and for user feedback
   (2026-10-22). [MAINTAINING.md](MAINTAINING.md) covers engine updates, satmod
   releases, and where feedback arrives.
