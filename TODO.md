@@ -146,8 +146,26 @@ Git history has the details.
   - "No ELF files and not an any package": kept as `x86_64` on purpose. It only
     works with the x86_64 engine and Wine, and bootstrap expects x86_64
     metadata.
-- [ ] Check file ownership, permissions, and declared dependencies in the built
-  packages.
+- [x] Check file ownership, permissions, and declared dependencies (2026-10-22).
+  `satisfactory-modding-setup` 1.0.0-8: every entry is root:root, directories
+  755, files 644 or 755, nothing group- or world-writable, no setuid, no
+  dangling symlinks, and every tool the CLI requires belongs to a declared
+  dependency. The engine was checked as installed, since no built package was on
+  disk: root owns its files apart from those builds rewrote (below), the hook
+  set group `unreal-engine-css` on all of them, directories are 2775, and
+  nothing is world-writable or setuid. Every NEEDED
+  library of its x86_64 Linux ELF files resolves inside the dependency closure,
+  except optional ones: `libGLU.so.1` for TechSoft CAD import, and old sonames
+  for a few bundled Python modules (bz2, gdbm, curses, readline). The rest are
+  Android, ARM, musl, or 32-bit files. The editor ships its own Vulkan loader.
+- [ ] Decide whether the engine should make files that builds create group-writable.
+  UAT rebuilt 53 package files (automation scripts) and builds added about 5,400
+  files owned by the user, about 3,400 of them without group write because of
+  umask 022. Another member of `unreal-engine-css` could not overwrite them.
+  A default ACL from the install hook would fix it; a single-user machine never
+  sees it.
+- [ ] Decide whether to add engine optdepends: `vulkan-driver` for the editor and
+  `glu` for CAD import.
 - [ ] Test package removal, and confirm user data survives. Upgrade over the
   hand-modified install and later releases already worked.
 
