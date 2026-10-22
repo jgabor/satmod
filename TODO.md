@@ -252,4 +252,3 @@ After the completion criteria are met:
   helper files. Never publish engine archives, Microsoft tools, or built packages.
 - [ ] Explain the authenticated download and license terms on each package page.
 - [ ] Set up a reviewed process for engine updates and for user feedback.
-- [ ] Ask the wwise-cli author about its missing license before any redistribution.
