@@ -100,6 +100,10 @@ next.
    `satmod doctor` and the command you changed.
 4. Commit, push to GitHub, and publish with `./scripts/aur-sync satmod`, review,
    then `--push`.
+5. For a new `pkgver`, tag the commit you published and push the tag:
+   `git tag -a vPKGVER -m "satmod PKGVER-PKGREL"` and `git push origin vPKGVER`.
+   A `pkgrel` change alone, such as a packaging fix, gets no tag. Change code
+   with a new `pkgver`, so every code change has a tag.
 
 Never publish engine archives, Microsoft tools, built packages, or credentials.
 `aur-sync` only copies files that git tracks in `packages/PKG`.

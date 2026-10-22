@@ -56,6 +56,11 @@ class AurSyncTests(unittest.TestCase):
                                 env=self.env, capture_output=True, text=True)
         return result.returncode, json.loads(result.stdout), result.stderr
 
+    def srcinfo(self, name, key):
+        text = (self.repo / "packages" / name / ".SRCINFO").read_text()
+        return next(line.split(" = ", 1)[1] for line in text.splitlines()
+                    if line.strip().startswith(key + " = "))
+
     def checkout(self, name):
         return self.repo / ".cache/aur" / name
 
@@ -67,7 +72,8 @@ class AurSyncTests(unittest.TestCase):
         code, result, error = self.sync("satmod", "unreal-engine-css-bin")
         self.assertEqual(code, 0, error)
         satmod, engine = result["packages"]
-        self.assertEqual(satmod["version"], "1.0.0-1")
+        version = self.srcinfo("satmod", "pkgver") + "-" + self.srcinfo("satmod", "pkgrel")
+        self.assertEqual(satmod["version"], version)
         self.assertTrue(satmod["committed"] and engine["committed"])
         self.assertFalse(satmod["pushed"])
         self.assertEqual(satmod["unpushed"], 1)
@@ -95,7 +101,7 @@ class AurSyncTests(unittest.TestCase):
         code, result, error = self.sync("satmod", "--push")
         self.assertEqual(code, 0, error)
         self.assertTrue(result["packages"][0]["pushed"])
-        self.assertEqual(self.remote_log("satmod"), ["Initial import 1.0.0-1"])
+        self.assertEqual(self.remote_log("satmod"), ["Initial import " + version])
 
     def test_update_commits_changes_and_drops_removed_files(self):
         (self.repo / "packages/satmod/notes.txt").write_text("extra\n")
@@ -104,6 +110,7 @@ class AurSyncTests(unittest.TestCase):
         self.assertIn("notes.txt", self.git("ls-files", cwd=self.checkout("satmod")))
         recipe = self.repo / "packages/satmod"
         pkgbuild = recipe / "PKGBUILD"
+        pkgver = self.srcinfo("satmod", "pkgver")
         pkgbuild.write_text(pkgbuild.read_text().replace("pkgrel=1\n", "pkgrel=2\n"))
         (recipe / ".SRCINFO").write_text(subprocess.run(
             ["makepkg", "--printsrcinfo"], cwd=recipe, check=True, capture_output=True,
@@ -114,10 +121,10 @@ class AurSyncTests(unittest.TestCase):
         (self.checkout("satmod") / "src").mkdir()
         code, result, error = self.sync("satmod", "--push")
         self.assertEqual(code, 0, error)
-        self.assertEqual(result["packages"][0]["version"], "1.0.0-2")
+        self.assertEqual(result["packages"][0]["version"], pkgver + "-2")
         self.assertNotIn("notes.txt", self.git("ls-files", cwd=self.checkout("satmod")))
         self.assertFalse((self.checkout("satmod") / "src").exists())
-        self.assertEqual(self.remote_log("satmod"), ["Update to 1.0.0-2", "Initial import 1.0.0-1"])
+        self.assertEqual(self.remote_log("satmod"), [f"Update to {pkgver}-2", f"Initial import {pkgver}-1"])
 
     def test_refuses_dirty_or_stale_recipes_before_cloning(self):
         pkgbuild = self.repo / "packages/satmod/PKGBUILD"

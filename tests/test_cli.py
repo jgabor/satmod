@@ -370,6 +370,32 @@ class ModTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('Ambiguous mod', result.stderr)
 
+    def test_symlinked_mods_are_found_once_and_loops_end(self):
+        outside = self.home / 'checkout'
+        source = outside / 'client/Linked/Linked.uplugin'
+        source.parent.mkdir(parents=True)
+        source.write_text('{}')
+        # A mod linked into Mods keeps its link path, which decides output locations.
+        link = self.project.parent / 'Mods/Linked'
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(source.parent)
+        self.assertEqual(cli.find_mod(self.project, 'Linked'), link / 'Linked.uplugin')
+        # A second link to the same folder, and a link back up the tree, change nothing.
+        (self.project.parent / 'Plugins').mkdir(exist_ok=True)
+        (self.project.parent / 'Plugins/Again').symlink_to(source.parent)
+        (self.project.parent / 'Mods/Loop').symlink_to(self.project.parent / 'Mods')
+        self.assertEqual(cli.find_mod(self.project, 'Linked'), link / 'Linked.uplugin')
+        link.unlink()
+        self.assertEqual(cli.find_mod(self.project, 'Linked'),
+                         self.project.parent / 'Plugins/Again/Linked.uplugin')
+        # A dangling link is skipped like any missing folder.
+        (self.project.parent / 'Mods/Gone').symlink_to(self.home / 'missing')
+        with self.assertRaisesRegex(cli.SetupError, 'Mod Absent not found'):
+            cli.find_mod(self.project, 'Absent')
+        result = self.invoke('build', 'Linked', '--no-copy', '--json')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['mod'], 'Linked')
+
     def test_build_argv_environment_stdin_logs_and_json(self):
         startup = self.home / 'startup.sh'
         startup.write_text('export WINEPREFIX=/wrong; export STARTUP_RAN=yes\n')

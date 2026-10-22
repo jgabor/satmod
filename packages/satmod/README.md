@@ -324,7 +324,10 @@ satmod mod build MyMod --project ~/git/SatisfactoryModLoader --game /path/to/Sat
 Both commands accept `--project PATH`, either a `.uproject` file or its directory.
 Without it, they search the current directory and its parents for
 `FactoryGame.uproject`. Build discovers plugins recursively in `Mods`, `Plugins`,
-and the project's `AdditionalPluginDirectories`, including game-feature mods.
+and the project's `AdditionalPluginDirectories`, including game-feature mods. Like
+Unreal, it follows symlinks, so a mod kept in its own repository can be linked in,
+for example `ln -s ~/git/MyMod Mods/MyMod`. Each real folder counts once, so a mod
+linked twice is not ambiguous and link loops end.
 
 Build first compiles the project's Linux editor target (for the Starter Project,
 `FactoryEditor Linux Development`) with the engine's `Linux/Build.sh`, the same
