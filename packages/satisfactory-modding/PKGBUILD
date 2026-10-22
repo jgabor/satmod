@@ -1,18 +1,18 @@
 # Maintainer: Jonathan Gabor
 # makepkg reads metadata and supplies srcdir/pkgdir.
 # shellcheck disable=SC2034,SC2154
-pkgname=satisfactory-modding-setup
+pkgname=satisfactory-modding
 pkgver=1.0.0
-pkgrel=8
-pkgdesc='User-run MSVC/Wine setup for Satisfactory mod development'
+pkgrel=1
+pkgdesc='MSVC under Wine, Starter Project setup, and mod builds for Satisfactory modding'
 arch=('x86_64')
-url='https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html'
+url='https://github.com/jgabor/satisfactory-modding-linux'
 license=('ISC')
 depends=('unreal-engine-css-bin' 'python' 'msitools' 'wine' 'git' 'perl' 'bash'
          'ca-certificates' 'coreutils' 'findutils' 'gawk' 'grep' 'sed' 'patch'
          'tar' 'zstd' 'dos2unix')
 options=('!strip' '!debug')
-install=satisfactory-modding-setup.install
+install=satisfactory-modding.install
 _commit=61b7cbc8cb9413fec8f0016ef433a90e06c37f54
 source=("msvc-wine-${_commit}.tar.gz::https://codeload.github.com/mircearoata/msvc-wine/tar.gz/${_commit}"
         'satisfactory-modding' 'LICENSE')

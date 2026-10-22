@@ -20,7 +20,7 @@ password.
    This always runs, so bootstrap needs a working `gh` login and network access
    even when every package is cached. If a new release has come out, a rerun
    picks it up and builds it.
-3. For the engine and then the setup package: reuses the package in `.cache/` if
+3. For the engine and then `satisfactory-modding`: reuses the package in `.cache/` if
    one with the expected name, version, and architecture exists. Otherwise it
    builds one with `makepkg --syncdeps`. Then it installs it with
    `sudo pacman -U --needed`.
@@ -44,7 +44,7 @@ in `.cache/`.
 | --- | --- |
 | `.cache/engine-recipe/sources/` | Engine archive parts |
 | `.cache/engine-recipe/packages/` | Built engine packages |
-| `.cache/upstream/msvc-wine/` | `msvc-wine` snapshot and built setup packages |
+| `.cache/upstream/msvc-wine/` | `msvc-wine` snapshot and built `satisfactory-modding` packages |
 | `.cache/*-recipe/{build,logs,tmp}/` | makepkg working directories |
 | `.cache/*-recipe/makepkg.conf` | Created on first run. Edit it to change build settings, such as compression. |
 

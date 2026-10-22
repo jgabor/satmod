@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = "unreal-engine-css-bin"
-SETUP = "satisfactory-modding-setup"
+SETUP = "satisfactory-modding"
 
 STUB = r"""
 import json, os, pathlib, subprocess, sys
@@ -77,7 +77,7 @@ if tool == "makepkg":
         print("build diagnostic")
 elif tool == "pacman":
     assert args[0] == "-Qip"
-    name = "unreal-engine-css-bin" if "unreal-engine-css-bin" in args[1] else "satisfactory-modding-setup"
+    name = "unreal-engine-css-bin" if "unreal-engine-css-bin" in args[1] else "satisfactory-modding"
     version = "5.6.1.css83-3" if name == "unreal-engine-css-bin" else "1.0.0-3"
     print("Name : " + ("wrong" if os.environ.get("BAD_NAME") else name))
     print("Version : " + ("0-1" if os.environ.get("BAD_VERSION") else version))

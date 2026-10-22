@@ -7,7 +7,7 @@ Automate the
 through command-line **Project Setup**, with two Arch packages:
 
 - `unreal-engine-css-bin`: the prebuilt CSS engine under `/opt/unreal-engine-css`.
-- `satisfactory-modding-setup`: provides `satisfactory-modding setup` to install
+- `satisfactory-modding`: provides `satisfactory-modding setup` to install
   MSVC under Wine, register the engine, and write the build environment. The CLI
   also provides `project init` for Starter Project and Wwise setup, `run` to
   start tools, `doctor` to check the installation, and `mod new` and `mod build`
@@ -262,9 +262,11 @@ After the completion criteria are met:
     engine versions.
   - `satisfactory-modding-setup`: built from pinned sources, so no suffix. It
     does not collide with the `satisfactory-mod-manager*` packages.
-- [ ] Before submitting `satisfactory-modding-setup`, update its metadata: `pkgdesc`
-  still says only "MSVC/Wine setup" although the CLI also does Project Setup and
-  mod builds, and `url` points at the ficsit.app guide rather than this project.
+- [x] Rename `satisfactory-modding-setup` to `satisfactory-modding`, matching its
+  command, and fix its metadata (1.0.0-1). `pkgdesc` now covers Project Setup and
+  mod builds, and `url` is this repository. The markers the CLI writes into
+  `~/.unrealrc`, the environment file, and the toolchain's `msvcenv.sh` keep the
+  old name, so existing setups stay valid without a migration.
 - [ ] Create one AUR repository per package with its `.SRCINFO`, license, and
   helper files. Never publish engine archives, Microsoft tools, or built packages.
 - [ ] Explain the authenticated download and license terms on each package page.

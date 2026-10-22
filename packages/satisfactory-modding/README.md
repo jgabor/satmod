@@ -1,4 +1,4 @@
-# satisfactory-modding-setup
+# satisfactory-modding
 
 This package provides one CLI, `satisfactory-modding`, with these commands:
 
@@ -136,7 +136,7 @@ Install the [engine package](../unreal-engine-css-bin/README.md) first. Then bui
 and install this package as your ordinary user:
 
 ```sh
-cd packages/satisfactory-modding-setup
+cd packages/satisfactory-modding
 makepkg -si
 ```
 
@@ -362,5 +362,5 @@ paths), and `game_mod` (an existing copied directory or `null`). New JSON has
 ## License
 
 The setup scripts are [ISC](LICENSE), as is the bundled `msvc-wine` snapshot.
-Both notices are installed under `/usr/share/licenses/satisfactory-modding-setup/`.
+Both notices are installed under `/usr/share/licenses/satisfactory-modding/`.
 The Microsoft tools that setup downloads keep their own terms.

@@ -6,7 +6,7 @@ through command-line **Project Setup**:
 
 - [unreal-engine-css-bin](packages/unreal-engine-css-bin/README.md) packages the
   prebuilt Coffee Stain Studios (CSS) Unreal Engine under `/opt/unreal-engine-css`.
-- [satisfactory-modding-setup](packages/satisfactory-modding-setup/README.md)
+- [satisfactory-modding](packages/satisfactory-modding/README.md)
   adds `satisfactory-modding setup`, which installs the MSVC toolchain and Windows
   SDK under Wine for your user and registers the engine, and
   `satisfactory-modding run`, which runs a command (such as your IDE) with that
@@ -67,7 +67,7 @@ Running bootstrap downloads Microsoft build tools. See
    `git status` shows them as modified.
 2. Builds each package with `makepkg`, unless a matching package is already in
    `.cache/`.
-3. Installs the engine, then the setup package, with `sudo pacman -U`.
+3. Installs the engine, then `satisfactory-modding`, with `sudo pacman -U`.
 4. Adds you to the `unreal-engine-css` group with `sudo gpasswd`, if you are not
    already a member.
 5. Runs `satisfactory-modding setup` as your user.
@@ -111,13 +111,13 @@ This clones the Starter Project, downloads the pinned wwise-cli and Wwise SDK,
 integrates Wwise, creates the Wwise project and Windows soundbanks under Wine,
 and sets audio routing. Only the Audiokinetic login needs input. For unattended
 runs, set `WWISE_EMAIL` and `WWISE_PASSWORD` in the environment; `WWISE_USER` and
-`WWISE_PASS` work too. Reruns skip completed steps. See the [command details](packages/satisfactory-modding-setup/README.md#initialize-a-project)
+`WWISE_PASS` work too. Reruns skip completed steps. See the [command details](packages/satisfactory-modding/README.md#initialize-a-project)
 for cache paths, version pins, and `--wwise-cli` and `--json` options.
 
 When upstream SML moves on, `satisfactory-modding project update
 ~/git/SatisfactoryModLoader` fast-forwards the project and updates Wwise to the
 versions the new commit needs. It stops without changing anything if you have
-local commits or changes of your own. See [update a project](packages/satisfactory-modding-setup/README.md#update-a-project).
+local commits or changes of your own. See [update a project](packages/satisfactory-modding/README.md#update-a-project).
 
 Install Rider's **Unreal Project Model Mods Fix** plugin, then open the project:
 
@@ -160,7 +160,7 @@ builds and packages a Windows client mod and copies it into the Steam install,
 which it detects automatically. Use `--game DIR` to choose the game directory,
 or `--no-copy` to package only. Both commands accept `--project PATH` and
 `--json`. Archives land in `Saved/ArchivedPlugins/REF/REF-Windows.zip`.
-See the [CLI documentation](packages/satisfactory-modding-setup/README.md#create-a-library-mod)
+See the [CLI documentation](packages/satisfactory-modding/README.md#create-a-library-mod)
 for options, outputs, and limits. Both commands were tested on a real Starter
 Project: `mod new --cpp` followed by `mod build` compiled, packaged, and copied a
 new mod into the game, which loaded it, without opening the editor.
@@ -183,14 +183,14 @@ you are done testing.
 ## Uninstall
 
 ```sh
-sudo pacman -Rns satisfactory-modding-setup unreal-engine-css-bin
+sudo pacman -Rns satisfactory-modding unreal-engine-css-bin
 ```
 
-To keep the engine, remove only `satisfactory-modding-setup`.
+To keep the engine, remove only `satisfactory-modding`.
 
 Removing the packages leaves your toolchain, download cache, Wine prefix,
 environment file, `~/.unrealrc` entry, and engine registration in place. The
-[setup guide](packages/satisfactory-modding-setup/README.md#remove-user-data)
+[setup guide](packages/satisfactory-modding/README.md#remove-user-data)
 lists them.
 
 ## Development

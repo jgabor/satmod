@@ -1,9 +1,9 @@
-pkgbase = satisfactory-modding-setup
-	pkgdesc = User-run MSVC/Wine setup for Satisfactory mod development
+pkgbase = satisfactory-modding
+	pkgdesc = MSVC under Wine, Starter Project setup, and mod builds for Satisfactory modding
 	pkgver = 1.0.0
-	pkgrel = 8
-	url = https://docs.ficsit.app/satisfactory-modding/latest/Development/Linux/LinuxSetup.html
-	install = satisfactory-modding-setup.install
+	pkgrel = 1
+	url = https://github.com/jgabor/satisfactory-modding-linux
+	install = satisfactory-modding.install
 	arch = x86_64
 	license = ISC
 	depends = unreal-engine-css-bin
@@ -32,4 +32,4 @@ pkgbase = satisfactory-modding-setup
 	sha256sums = eec1dac37446a2e92ab80f0b53f36624c0a234e8930d2cc17a53933e4f1e1fe1
 	sha256sums = 2c50315092a261a88be9569e534c24b56b08606dde657263e8728f711263e58e
 
-pkgname = satisfactory-modding-setup
+pkgname = satisfactory-modding

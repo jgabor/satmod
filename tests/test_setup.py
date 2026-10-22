@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-RECIPE = ROOT / "packages/satisfactory-modding-setup"
+RECIPE = ROOT / "packages/satisfactory-modding"
 loader = importlib.machinery.SourceFileLoader(
     "setup_cli", str(RECIPE / "satisfactory-modding")
 )
@@ -583,7 +583,7 @@ class SetupRecipeTests(unittest.TestCase):
             with self.subTest(hook=hook), tempfile.TemporaryDirectory() as temp:
                 result = subprocess.run(
                     ["bash", "-c", 'source "$1"; "$2"', "notice",
-                     str(RECIPE / "satisfactory-modding-setup.install"), hook],
+                     str(RECIPE / "satisfactory-modding.install"), hook],
                     env=dict(os.environ, HOME=str(Path(temp) / "nonexistent"),
                              SUDO_USER="nonexistent-satisfactory-user", BASH_ENV="/dev/null"),
                     text=True, capture_output=True,
@@ -643,7 +643,7 @@ class SetupRecipeTests(unittest.TestCase):
                 check=True,
             )
             upstream = src / f"msvc-wine-{cli.PIN}"
-            installed = pkg / "usr/share/satisfactory-modding-setup/msvc-wine"
+            installed = pkg / "usr/share/satisfactory-modding/msvc-wine"
             # Everything but msvc-wine's own tests and Dockerfiles ships.
             shipped = [
                 p for p in upstream.rglob("*")
@@ -680,11 +680,11 @@ class SetupRecipeTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in (pkg / "usr/bin").iterdir()), ["satisfactory-modding"])
             self.assertTrue((pkg / "usr/bin/satisfactory-modding").is_symlink())
             self.assertEqual(os.readlink(pkg / "usr/bin/satisfactory-modding"),
-                             "../share/satisfactory-modding-setup/satisfactory-modding")
+                             "../share/satisfactory-modding/satisfactory-modding")
             self.assertTrue(
                 (
                     pkg
-                    / "usr/share/licenses/satisfactory-modding-setup/msvc-wine-LICENSE.txt"
+                    / "usr/share/licenses/satisfactory-modding/msvc-wine-LICENSE.txt"
                 ).exists()
             )
 
