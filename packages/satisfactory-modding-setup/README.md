@@ -48,7 +48,9 @@ It then:
    `Authoring_Windows_x64_Release` package, which is requested too; its filter
    also brings about 250 MB of debug symbols that cannot be filtered out.
    Wwise's cache is `${XDG_CACHE_HOME:-~/.cache}/wwise-cli/wwise/SDK_VERSION`.
-3. Integrates the Unreal plugin and checks Wwise and WwiseNiagara. When the
+3. Integrates the Unreal plugin and checks Wwise, WwiseNiagara, and the SDK
+   libraries under `ThirdParty` (in `Plugins/Wwise`, or `Plugins/WwiseSoundEngine`
+   since Wwise 2025). When the
    integrated version differs, it first removes every `Plugins/Wwise*` folder,
    because integrate-ue copies over files and never deletes old ones. It refuses
    if git tracks files in them.

@@ -570,11 +570,12 @@ def plugin_version(project):
 
 
 def integration_ready(project, version):
+    # Wwise 2025 moved the SDK libraries from the Wwise plugin to WwiseSoundEngine.
+    roots = (project / "Plugins/Wwise/ThirdParty", project / "Plugins/WwiseSoundEngine/ThirdParty")
     return (plugin_version(project) == version
             and (project / "Plugins/WwiseNiagara").is_dir()
-            and all(path.is_dir() and any(path.iterdir())
-                    for path in (project / "Plugins/Wwise/ThirdParty" / platform
-                                 for platform in WWISE_PLATFORMS)))
+            and all(any((root / platform).is_dir() and any((root / platform).iterdir()) for root in roots)
+                    for platform in WWISE_PLATFORMS))
 
 
 def xml_root(path):

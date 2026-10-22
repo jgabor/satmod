@@ -685,7 +685,9 @@ elif name=='wwise-cli':
   p=Path(args[-1]).parent
   touch(p/'Plugins/Wwise/Wwise.uplugin', json.dumps({'VersionName':sdk+'.'+integration.split('.')[-1]}))
   (p/'Plugins/WwiseNiagara').mkdir(parents=True,exist_ok=True)
-  for platform in ('x64_vc160','x64_vc170','Linux_x64'): touch(p/'Plugins/Wwise/ThirdParty'/platform/'library.a')
+  # Like the real integrations, 2025 puts the SDK libraries in WwiseSoundEngine.
+  plugin='WwiseSoundEngine' if integration.startswith('2025.') else 'Wwise'
+  for platform in ('x64_vc160','x64_vc170','Linux_x64'): touch(p/'Plugins'/plugin/'ThirdParty'/platform/'library.a')
 elif name=='winepath': print(args[-1])
 elif name=='wine':
  # WwiseConsole lives in .../wwise-cli/wwise/VERSION/Authoring/x64/Release/bin.
